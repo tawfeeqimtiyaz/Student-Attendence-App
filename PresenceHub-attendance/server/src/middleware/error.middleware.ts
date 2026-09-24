@@ -21,6 +21,13 @@ export function errorMiddleware(
     statusCode = err.statusCode;
     message = err.message;
     errors = err.errors;
+  } else if (
+    err.name === 'PrismaClientInitializationError' ||
+    (err as any).errorCode === 'P1001'
+  ) {
+    // Database connection failure — return 503 Service Unavailable
+    statusCode = 503;
+    message = 'Database is currently unavailable. Please try again later.';
   }
 
   // Log error in development
@@ -40,3 +47,4 @@ export function errorMiddleware(
     }),
   });
 }
+
