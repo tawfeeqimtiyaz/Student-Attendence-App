@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/v1/:path*", "destination": "https://YOUR-BACKEND-DOMAIN.vercel.app/api/v1/:path*" },
+    { "source": "/api/v1/:path*", "destination": "https://student-attendence-app-gray.vercel.app/api/v1/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
