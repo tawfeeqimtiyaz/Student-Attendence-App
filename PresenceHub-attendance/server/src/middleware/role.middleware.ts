@@ -3,7 +3,7 @@
 // ============================================
 
 import { Request, Response, NextFunction } from 'express';
-import { Role } from '@college-erp/shared';
+import { Role } from '../shared/index.js';
 import { AppError } from '../utils/AppError.js';
 
 /**

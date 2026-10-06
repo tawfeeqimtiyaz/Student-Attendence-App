@@ -4,7 +4,7 @@
 
 import jwt, { JwtPayload } from 'jsonwebtoken';
 import { env } from '../config/env.js';
-import { Role } from '@college-erp/shared';
+import { Role } from '../shared/index.js';
 
 export interface TokenPayload {
   userId: string;

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { requireRole } from '../../middleware/role.middleware.js';
-import { Role } from '@college-erp/shared';
+import { Role } from '../../shared/index.js';
 import * as StudentController from './student.controller.js';
 
 const router = Router();

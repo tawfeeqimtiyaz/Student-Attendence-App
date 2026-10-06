@@ -7,9 +7,9 @@ import { authController } from './auth.controller.js';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { requireRole } from '../../middleware/role.middleware.js';
 import { validate } from '../../middleware/validate.middleware.js';
-import { loginSchema, registerSchema } from '@college-erp/shared';
+import { loginSchema, registerSchema } from '../../shared/index.js';
 import { authLimiter } from '../../middleware/rateLimiter.middleware.js';
-import { Role } from '@college-erp/shared';
+import { Role } from '../../shared/index.js';
 
 const router = Router();
 

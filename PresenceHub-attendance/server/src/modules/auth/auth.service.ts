@@ -6,7 +6,7 @@ import { prisma } from '../../config/database.js';
 import { hashPassword, comparePassword } from '../../utils/hash.js';
 import { generateTokenPair, verifyRefreshToken, TokenPayload } from '../../utils/jwt.js';
 import { AppError } from '../../utils/AppError.js';
-import { Role } from '@college-erp/shared';
+import { Role } from '../../shared/index.js';
 
 export class AuthService {
   /**

@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { authMiddleware } from '../../middleware/auth.middleware.js';
 import { requireRole } from '../../middleware/role.middleware.js';
 import { validate } from '../../middleware/validate.middleware.js';
-import { Role } from '@college-erp/shared';
+import { Role } from '../../shared/index.js';
 import {
   markAttendanceSchema,
   examSchema,
@@ -15,7 +15,7 @@ import {
   createFeeSchema,
   uploadGradesSchema,
   uploadResultsSchema,
-} from '@college-erp/shared';
+} from '../../shared/index.js';
 import * as FacultyController from './faculty.controller.js';
 
 const router = Router();
