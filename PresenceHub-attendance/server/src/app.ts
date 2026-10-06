@@ -66,4 +66,4 @@ app.use((_req, res) => {
 // ---- Global Error Handler ----
 app.use(errorMiddleware);
 
-export { app };
+export default app;

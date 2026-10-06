@@ -1,8 +1,10 @@
 // ============================================
 // Server Entry Point
 // ============================================
+import app from "./app.js";
 
-import { app } from './app.js';
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Server running on ${PORT}`));
 import { env } from './config/env.js';
 import { prisma } from './config/database.js';
 
