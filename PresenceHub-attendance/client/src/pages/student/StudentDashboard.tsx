@@ -1,105 +1,143 @@
-import React, { useEffect } from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card, CardHeader } from '../../components/shared/Card';
-import { ClipboardCheck, FileText, Bell, Loader2 } from 'lucide-react';
-import { useStudentStore } from '../../stores/student.store';
+import React, { useMemo } from 'react';
+import { ArrowRight, Bell, CalendarCheck, ClipboardCheck, FileText, GraduationCap, Wallet } from 'lucide-react';
+import { studentApi } from '../../api/student.api';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { useAuthStore } from '../../stores/auth.store';
+import { ROUTES } from '../../constants/routes';
+import { overallCounts, presentRate, summarizeByCourse } from '../../utils/attendance';
+import { formatCurrency, formatDate, formatNumber, formatPercent, humanize } from '../../utils/format';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card, CardHeader } from '../../components/ui/Card';
+import { StatCard } from '../../components/ui/Stats';
+import { ButtonLink } from '../../components/ui/Button';
+import { EmptyState, ErrorState, PageSkeleton } from '../../components/ui/States';
+import { CourseAttendanceList } from '../../components/student/CourseAttendanceList';
+import { NotificationItem } from '../../components/student/NotificationItem';
 
 export const StudentDashboard: React.FC = () => {
-  const { dashboard, isLoading, fetchDashboard } = useStudentStore();
+  const firstName = useAuthStore((s) => s.user?.firstName);
+  const dashboard = useApiQuery(studentApi.getDashboard, []);
+  const attendance = useApiQuery(studentApi.getAttendance, []);
 
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
+  const courses = useMemo(() => summarizeByCourse(attendance.data ?? []), [attendance.data]);
+  const counts = useMemo(() => overallCounts(attendance.data ?? []), [attendance.data]);
+  const total = attendance.data?.length ?? 0;
+  const rate = presentRate(counts);
 
-  if (isLoading || !dashboard) {
+  if (dashboard.isLoading || attendance.isLoading) return <PageSkeleton stats={4} />;
+  if (dashboard.error || attendance.error) {
     return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
+      <Page>
+        <PageHeader title="Dashboard" />
+        <Card>
+          <ErrorState
+            message={dashboard.error ?? attendance.error}
+            onRetry={() => {
+              dashboard.reload();
+              attendance.reload();
+            }}
+          />
+        </Card>
+      </Page>
     );
   }
+  const data = dashboard.data;
 
   return (
-    <div className="space-y-6">
-      <PageHeader 
-        title="Student Dashboard" 
-        subtitle="Your academic summary at a glance."
-      />
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6">
-        <Card className="flex items-center p-5 bg-gradient-to-br from-indigo-500 to-indigo-600 text-white border-none">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center mr-4 bg-white/20">
-            <ClipboardCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-white/80">Overall Attendance</p>
-            <h4 className="text-3xl font-bold mt-0.5">{dashboard.attendancePercentage}%</h4>
-          </div>
-        </Card>
-        
-        <Card className="flex items-center p-5">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center mr-4 bg-emerald-500/10 text-emerald-500">
-            <FileText className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-surface-500 dark:text-surface-400">Current SGPA</p>
-            <h4 className="text-2xl font-bold text-surface-900 dark:text-white mt-0.5">{dashboard.latestSgpa || 'N/A'}</h4>
-          </div>
-        </Card>
+    <Page>
+      <PageHeader title={firstName ? `Hello, ${firstName}` : 'Dashboard'} description="Your attendance, recent marks and announcements at a glance." />
 
-        <Card className="flex items-center p-5">
-          <div className="w-12 h-12 rounded-xl flex items-center justify-center mr-4 bg-rose-500/10 text-rose-500">
-            <Bell className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-sm font-medium text-surface-500 dark:text-surface-400">Pending Dues</p>
-            <h4 className="text-2xl font-bold text-surface-900 dark:text-white mt-0.5">${dashboard.pendingFees.toFixed(2)}</h4>
-          </div>
-        </Card>
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard
+          label="Attendance"
+          value={formatPercent(rate)}
+          icon={ClipboardCheck}
+          hint={total ? `Present in ${counts.PRESENT} of ${total} classes` : 'No classes recorded yet'}
+        />
+        <StatCard label="Classes recorded" value={formatNumber(total)} icon={CalendarCheck} hint={`Across ${courses.length} courses`} />
+        <StatCard label="Latest SGPA" value={data.latestSgpa ?? '—'} icon={GraduationCap} hint={data.latestSgpa ? 'Most recent result' : 'No results yet'} />
+        <StatCard label="Outstanding dues" value={formatCurrency(data.pendingFees)} icon={Wallet} hint="Pending and overdue fees" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader title="Recent Marks" />
-          <div className="space-y-4">
-             {dashboard.recentMarks.length === 0 ? (
-               <p className="text-sm text-surface-500 dark:text-surface-400">No recent marks available.</p>
-             ) : (
-               dashboard.recentMarks.map((mark: any) => (
-                 <div key={mark.id} className="p-4 rounded-lg bg-surface-50 dark:bg-surface-800/50 border border-surface-100 dark:border-surface-800">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className="font-semibold text-surface-900 dark:text-white">{mark.exam.course.name}</h4>
-                      <p className="text-sm text-surface-500 dark:text-surface-400 mt-1">{mark.exam.type} Exam</p>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardHeader
+            title="Attendance by course"
+            description="Share of classes marked present"
+            actions={
+              <ButtonLink to={ROUTES.STUDENT_ATTENDANCE} variant="ghost" size="sm">
+                Details <ArrowRight />
+              </ButtonLink>
+            }
+          />
+          <div className="mt-5">
+            {courses.length === 0 ? (
+              <EmptyState compact icon={ClipboardCheck} title="No attendance recorded yet" />
+            ) : (
+              <CourseAttendanceList courses={courses} />
+            )}
+          </div>
+        </Card>
+
+        <div className="space-y-6 lg:col-span-2">
+          <Card flush>
+            <div className="border-b border-line px-5 py-4">
+              <CardHeader
+                title="Recent marks"
+                actions={
+                  <ButtonLink to={ROUTES.STUDENT_MARKS} variant="ghost" size="sm">
+                    All marks <ArrowRight />
+                  </ButtonLink>
+                }
+              />
+            </div>
+            {data.recentMarks.length === 0 ? (
+              <EmptyState compact icon={FileText} title="No marks yet" />
+            ) : (
+              <ul className="divide-y divide-line">
+                {data.recentMarks.map((mark) => (
+                  <li key={mark.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-fg">{mark.exam.course.name}</p>
+                      <p className="text-xs text-fg-subtle">
+                        {mark.exam.name} · {humanize(mark.exam.type)} · {formatDate(mark.exam.date)}
+                      </p>
                     </div>
-                    <span className="px-2.5 py-1 text-xs font-semibold rounded-md bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400">
-                      {mark.obtainedMarks} / {mark.exam.maxMarks}
-                    </span>
-                  </div>
-                </div>
-               ))
-             )}
-          </div>
-        </Card>
-        <Card>
-          <CardHeader title="Recent Announcements" />
-          <div className="space-y-4">
-             {dashboard.notifications.length === 0 ? (
-               <p className="text-surface-500 dark:text-surface-400">No new announcements today.</p>
-             ) : (
-               dashboard.notifications.map((notification: any) => (
-                 <div key={notification.id} className="flex gap-3 items-start pb-4 border-b border-surface-100 dark:border-surface-800 last:border-0 last:pb-0">
-                  <div className="w-2 h-2 mt-2 rounded-full bg-primary-500 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-surface-900 dark:text-white">{notification.title}</p>
-                    <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5">{notification.message}</p>
-                  </div>
-                </div>
-               ))
-             )}
-          </div>
-        </Card>
+                    <p className="shrink-0 text-sm font-semibold tabular-nums text-fg">
+                      {mark.obtainedMarks}
+                      <span className="font-normal text-fg-subtle"> / {mark.exam.maxMarks}</span>
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          <Card flush>
+            <div className="border-b border-line px-5 py-4">
+              <CardHeader
+                title="Announcements"
+                actions={
+                  <ButtonLink to={ROUTES.NOTIFICATIONS} variant="ghost" size="sm">
+                    View all <ArrowRight />
+                  </ButtonLink>
+                }
+              />
+            </div>
+            {data.notifications.length === 0 ? (
+              <EmptyState compact icon={Bell} title="You're all caught up" description="No unread announcements." />
+            ) : (
+              <ul className="divide-y divide-line">
+                {data.notifications.slice(0, 3).map((n) => (
+                  <li key={n.id}>
+                    <NotificationItem notification={n} compact />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
-    </div>
+    </Page>
   );
 };

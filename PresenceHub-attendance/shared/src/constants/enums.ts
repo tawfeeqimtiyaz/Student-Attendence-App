@@ -28,6 +28,7 @@ export enum FeeType {
   LIBRARY = 'LIBRARY',
   LAB = 'LAB',
   EXAM = 'EXAM',
+  FINE = 'FINE',
   OTHER = 'OTHER',
 }
 

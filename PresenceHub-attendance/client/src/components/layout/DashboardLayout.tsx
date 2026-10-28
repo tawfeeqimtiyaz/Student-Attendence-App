@@ -1,38 +1,56 @@
 // ============================================
-// Dashboard Layout — Dynamic Sidebar + Content
+// Dashboard Layout — sidebar + header + page container
 // ============================================
 
-import React from 'react';
-import { Outlet } from 'react-router-dom';
-import { Sidebar, SIDEBAR_WIDTH_EXPANDED, SIDEBAR_WIDTH_COLLAPSED } from './Sidebar';
+import React, { Suspense, useEffect } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
+import { Role } from '@college-erp/shared';
+import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 import { UIProvider, useUI } from '../../contexts/UIContext';
+import { useAuthStore } from '../../stores/auth.store';
+import { findNavEntry } from '../../constants/navigation';
+import { cn } from '../../utils/cn';
+import { PageSkeleton } from '../ui/States';
+
+function useDocumentTitle() {
+  const { pathname } = useLocation();
+  const role = useAuthStore((s) => s.user?.role) as Role | undefined;
+  useEffect(() => {
+    const entry = role ? findNavEntry(role, pathname) : null;
+    document.title = entry ? `${entry.item.label} · PresenceHub` : 'PresenceHub';
+  }, [pathname, role]);
+}
 
 const LayoutInner: React.FC = () => {
   const { isSidebarCollapsed } = useUI();
-  const marginLeft = isSidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED;
+  const { pathname } = useLocation();
+  useDocumentTitle();
 
   return (
-    <div className="min-h-screen bg-surface-50 dark:bg-surface-950 transition-colors duration-200">
+    <div className="min-h-dvh bg-canvas">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[80] focus:rounded-md focus:bg-card focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:shadow-md"
+      >
+        Skip to main content
+      </a>
       <Sidebar />
-      {/* Main content — margin adjusts dynamically with the sidebar */}
       <div
-        className="flex flex-col min-h-screen transition-all duration-300 ease-in-out"
-        style={{ marginLeft: `${marginLeft}px` }}
+        className={cn(
+          'flex min-h-dvh flex-col transition-[padding] duration-200 ease-out',
+          isSidebarCollapsed ? 'lg:pl-sidebar-collapsed' : 'lg:pl-sidebar'
+        )}
       >
         <Topbar />
-        <main className="flex-1 p-4 lg:p-6 xl:p-8 overflow-y-auto animate-fadeIn">
-          <Outlet />
+        <main id="main" tabIndex={-1} className="mx-auto w-full max-w-content flex-1 px-4 py-6 focus:outline-none sm:px-6 lg:px-8 lg:py-8">
+          <Suspense fallback={<PageSkeleton />}>
+            <div key={pathname} className="animate-fade-in">
+              <Outlet />
+            </div>
+          </Suspense>
         </main>
       </div>
-      {/* Mobile: no margin, sidebar is an overlay */}
-      <style>{`
-        @media (max-width: 1023px) {
-          div[style*="margin-left"] {
-            margin-left: 0px !important;
-          }
-        }
-      `}</style>
     </div>
   );
 };

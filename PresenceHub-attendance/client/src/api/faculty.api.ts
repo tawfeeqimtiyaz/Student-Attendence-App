@@ -2,36 +2,44 @@
 // Faculty API — HTTP Client Layer
 // ============================================
 
-import api from './axios';
+import type { ApiResponse } from '@college-erp/shared';
+import api, { unwrap } from './axios';
+import type {
+  AttendanceEntry,
+  AttendanceInput,
+  DisciplineEntry,
+  FacultyDashboard,
+  FacultyExam,
+  FacultySection,
+  FineEntry,
+  GradeEntry,
+} from '../types/api';
 
 export const facultyApi = {
   // Dashboard
-  getDashboard: () => api.get('/faculty/dashboard'),
+  getDashboard: () => api.get<ApiResponse<FacultyDashboard>>('/faculty/dashboard').then(unwrap),
 
-  // Sections
-  getSections: () => api.get('/faculty/sections'),
-  getSectionStudents: (sectionId: string) =>
-    api.get(`/faculty/sections/${sectionId}/students`),
+  // Sections (includes enrolled students)
+  getSections: () => api.get<ApiResponse<FacultySection[]>>('/faculty/sections').then(unwrap),
   getExamsForSection: (sectionId: string) =>
-    api.get(`/faculty/sections/${sectionId}/exams`),
+    api.get<ApiResponse<FacultyExam[]>>(`/faculty/sections/${sectionId}/exams`).then(unwrap),
 
-  // Exams
+  // Exams — the validator requires courseId alongside sectionId
   createExam: (data: {
+    courseId: string;
     sectionId: string;
     name: string;
     type: string;
     maxMarks: number;
     date: string;
-  }) => api.post('/faculty/exams', data),
+  }) => api.post<ApiResponse<FacultyExam>>('/faculty/exams', data).then(unwrap),
 
   // Attendance
-  markAttendance: (data: {
-    sectionId: string;
-    date: string;
-    records: { studentId: string; status: string; remarks?: string }[];
-  }) => api.post('/faculty/attendance', data),
+  markAttendance: (data: AttendanceInput) => api.post('/faculty/attendance', data),
   getAttendanceHistory: (sectionId: string, date?: string) =>
-    api.get(`/faculty/attendance/${sectionId}`, { params: { date } }),
+    api
+      .get<ApiResponse<AttendanceEntry[]>>(`/faculty/attendance/${sectionId}`, { params: date ? { date } : {} })
+      .then(unwrap),
 
   // Marks
   uploadMarks: (data: {
@@ -42,14 +50,10 @@ export const facultyApi = {
   // Grades
   uploadGrades: (data: {
     sectionId: string;
-    records: {
-      studentId: string;
-      letterGrade: string;
-      gradePoints: number;
-      remarks?: string;
-    }[];
+    records: { studentId: string; letterGrade: string; gradePoints: number; remarks?: string }[];
   }) => api.post('/faculty/grades', data),
-  getGrades: (sectionId: string) => api.get(`/faculty/grades/${sectionId}`),
+  getGrades: (sectionId: string) =>
+    api.get<ApiResponse<GradeEntry[]>>(`/faculty/grades/${sectionId}`).then(unwrap),
 
   // Results
   uploadResults: (data: {
@@ -72,15 +76,15 @@ export const facultyApi = {
     incidentDate: string;
     actionDetails?: string;
   }) => api.post('/faculty/discipline', data),
-  getDisciplineRecords: () => api.get('/faculty/discipline'),
+  getDisciplineRecords: () => api.get<ApiResponse<DisciplineEntry[]>>('/faculty/discipline').then(unwrap),
 
-  // Fines
+  // Fines — recorded as fees of type FINE
   assignFine: (data: {
     studentId: string;
     amount: number;
     dueDate: string;
     academicYear: string;
     semester: number;
-  }) => api.post('/faculty/fines', data),
-  getAssignedFines: () => api.get('/faculty/fines'),
+  }) => api.post('/faculty/fines', { ...data, type: 'FINE' }),
+  getAssignedFines: () => api.get<ApiResponse<FineEntry[]>>('/faculty/fines').then(unwrap),
 };

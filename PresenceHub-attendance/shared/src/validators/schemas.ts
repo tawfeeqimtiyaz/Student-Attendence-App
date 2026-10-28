@@ -123,7 +123,7 @@ export const examSchema = z.object({
 // ---- Marks ----
 export const enterMarksSchema = z.object({
   examId: z.string().uuid('Invalid exam ID'),
-  marks: z.array(
+  records: z.array(
     z.object({
       studentId: z.string().uuid(),
       obtainedMarks: z.number().min(0),

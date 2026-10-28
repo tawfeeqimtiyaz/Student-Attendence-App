@@ -1,93 +1,129 @@
+// ============================================
+// Topbar — breadcrumbs, theme, notifications (students), account menu
+// ============================================
+
 import React from 'react';
-import { Menu, Bell, Search, Sun, Moon, PanelLeft, PanelLeftClose } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Bell, ChevronDown, ChevronRight, LogOut, Menu as MenuIcon, Moon, Settings, Sun, UserCircle } from 'lucide-react';
+import { Role } from '@college-erp/shared';
 import { useUI } from '../../contexts/UIContext';
 import { useAuthStore } from '../../stores/auth.store';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { findNavEntry, PORTAL_LABELS, ROLE_LABELS } from '../../constants/navigation';
+import { ROUTES } from '../../constants/routes';
+import { getDashboardRoute } from '../shared/RoleGate';
+import { useLogout } from '../../hooks/useLogout';
+import { fullName } from '../../utils/format';
+import { IconButton } from '../ui/Button';
+import { Avatar } from '../ui/Avatar';
+import { Badge } from '../ui/Badge';
+import { Menu, MenuItem, MenuLabel, MenuSeparator } from '../ui/Menu';
 
-export const Topbar: React.FC = () => {
-  const { toggleSidebar, isSidebarCollapsed, toggleCollapse, theme, toggleTheme } = useUI();
-  const { user } = useAuthStore();
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  // Generate simple breadcrumb from path
-  const pathnames = location.pathname.split('/').filter((x) => x);
-  const breadcrumb = pathnames.length > 0 
-    ? pathnames.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' / ')
-    : 'Dashboard';
+function Breadcrumbs({ role }: { role: Role }) {
+  const { pathname } = useLocation();
+  const entry = findNavEntry(role, pathname);
+  const home = getDashboardRoute(role);
+  const isHome = entry?.item.path === home;
 
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between px-4 lg:px-6 py-3 bg-white/80 dark:bg-surface-900/80 backdrop-blur-md border-b border-surface-100 dark:border-surface-800 shadow-sm transition-colors duration-200">
-      
-      {/* Left side: Toggle & Breadcrumbs */}
-      <div className="flex items-center gap-3">
-        {/* Mobile hamburger */}
-        <button
-          onClick={toggleSidebar}
-          className="p-2 rounded-lg text-surface-600 hover:bg-surface-100 dark:text-surface-300 dark:hover:bg-surface-800 lg:hidden focus:outline-none transition-colors"
-          aria-label="Toggle Sidebar"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
+    <nav aria-label="Breadcrumb" className="min-w-0">
+      <ol className="flex min-w-0 items-center gap-1.5 text-[13px]">
+        <li className="hidden shrink-0 sm:block">
+          {isHome ? (
+            <span className="text-fg-subtle">{PORTAL_LABELS[role]}</span>
+          ) : (
+            <Link to={home} className="rounded text-fg-subtle transition-colors hover:text-fg">
+              {PORTAL_LABELS[role]}
+            </Link>
+          )}
+        </li>
+        {entry && (
+          <>
+            <li aria-hidden className="hidden text-fg-subtle/60 sm:block">
+              <ChevronRight className="size-3.5" />
+            </li>
+            <li className="min-w-0">
+              <span aria-current="page" className="block truncate font-medium text-fg">
+                {entry.item.label}
+              </span>
+            </li>
+          </>
+        )}
+      </ol>
+    </nav>
+  );
+}
 
-        {/* Desktop collapse toggle */}
-        <button
-          onClick={toggleCollapse}
-          className="hidden lg:flex p-2 rounded-lg text-surface-500 hover:bg-surface-100 dark:text-surface-400 dark:hover:bg-surface-800 transition-colors"
-          aria-label={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {isSidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
-        </button>
-        
-        <h2 className="hidden sm:block text-lg font-semibold text-surface-800 dark:text-surface-100">
-          {breadcrumb}
-        </h2>
-      </div>
+export const Topbar: React.FC = () => {
+  const { openSidebar, theme, toggleTheme } = useUI();
+  const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
+  const logout = useLogout();
 
-      {/* Right side: Search, Theme Toggle, Notifications, Profile */}
-      <div className="flex items-center gap-2 sm:gap-3">
-        
-        {/* Search */}
-        <div className="hidden md:flex items-center px-3 py-1.5 bg-surface-100 dark:bg-surface-800 rounded-full border border-surface-200 dark:border-surface-700">
-          <Search className="w-4 h-4 text-surface-500" />
-          <input 
-            type="text" 
-            placeholder="Search..." 
-            className="ml-2 bg-transparent border-none focus:outline-none text-sm text-surface-700 dark:text-surface-200 placeholder-surface-400 w-40"
+  if (!user) return null;
+  const role = user.role as Role;
+
+  return (
+    <header className="sticky top-0 z-30 border-b border-line bg-canvas/85 backdrop-blur-md supports-[backdrop-filter]:bg-canvas/75">
+      <div className="mx-auto flex h-header w-full max-w-content items-center gap-3 px-4 sm:px-6 lg:px-8">
+        <IconButton label="Open navigation" icon={<MenuIcon />} className="-ml-2 lg:hidden" onClick={openSidebar} />
+
+        <div className="min-w-0 flex-1">
+          <Breadcrumbs role={role} />
+        </div>
+
+        <div className="flex items-center gap-1">
+          <IconButton
+            label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+            icon={theme === 'dark' ? <Sun /> : <Moon />}
+            onClick={toggleTheme}
           />
+
+          {role === Role.STUDENT && (
+            <IconButton label="Notifications" icon={<Bell />} onClick={() => navigate(ROUTES.NOTIFICATIONS)} />
+          )}
+
+          <div aria-hidden className="mx-1.5 hidden h-6 w-px bg-line sm:block" />
+
+          <Menu
+            trigger={(props) => (
+              <button
+                {...props}
+                aria-label={`Account menu for ${fullName(user)}`}
+                className="flex h-9 items-center gap-2 rounded-md pl-1 pr-1.5 transition-colors hover:bg-subtle aria-expanded:bg-subtle"
+              >
+                <Avatar person={user} size="sm" />
+                <span className="hidden max-w-36 truncate text-sm font-medium text-fg md:block">{fullName(user)}</span>
+                <ChevronDown className="hidden size-4 text-fg-subtle md:block" aria-hidden />
+              </button>
+            )}
+          >
+            <MenuLabel>
+              <p className="truncate text-sm font-semibold text-fg">{fullName(user)}</p>
+              <p className="truncate text-xs text-fg-subtle">{user.email}</p>
+              <Badge tone="brand" className="mt-2">
+                {ROLE_LABELS[role]}
+              </Badge>
+            </MenuLabel>
+            <MenuSeparator />
+            {role === Role.STUDENT && (
+              <MenuItem icon={UserCircle} onClick={() => navigate(ROUTES.STUDENT_PROFILE)}>
+                My profile
+              </MenuItem>
+            )}
+            {role === Role.ADMIN && (
+              <MenuItem icon={Settings} onClick={() => navigate(ROUTES.ADMIN_SETTINGS)}>
+                Settings
+              </MenuItem>
+            )}
+            <MenuItem icon={theme === 'dark' ? Sun : Moon} onClick={toggleTheme}>
+              {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+            </MenuItem>
+            <MenuSeparator />
+            <MenuItem icon={LogOut} tone="danger" onClick={logout}>
+              Sign out
+            </MenuItem>
+          </Menu>
         </div>
-
-        {/* Theme Toggle */}
-        <button
-          onClick={toggleTheme}
-          className="p-2 rounded-full text-surface-500 hover:bg-surface-100 dark:text-surface-400 dark:hover:bg-surface-800 transition-colors"
-          aria-label="Toggle Theme"
-        >
-          {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-        </button>
-
-        {/* Notifications */}
-        <button
-          onClick={() => navigate('/notifications')}
-          className="relative p-2 rounded-full text-surface-500 hover:bg-surface-100 dark:text-surface-400 dark:hover:bg-surface-800 transition-colors"
-        >
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 flex h-2 w-2 rounded-full bg-danger ring-2 ring-white dark:ring-surface-900"></span>
-        </button>
-
-        {/* Profile */}
-        <div className="flex items-center gap-2 pl-2 sm:border-l sm:border-surface-200 dark:sm:border-surface-700">
-          <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white text-sm font-bold shadow-sm">
-            {user?.firstName?.[0]}{user?.lastName?.[0]}
-          </div>
-          <div className="hidden lg:block text-sm">
-            <p className="font-medium text-surface-800 dark:text-surface-100 leading-tight">
-              {user?.firstName} {user?.lastName}
-            </p>
-          </div>
-        </div>
-        
       </div>
     </header>
   );

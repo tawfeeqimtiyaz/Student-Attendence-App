@@ -1,90 +1,99 @@
 // ============================================
 // App — Root Router with Role-Based Routing
+// A data router (createBrowserRouter) so pages can block navigation
+// while they hold unsaved changes.
 // ============================================
 
-import React, { useEffect } from 'react';
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import React, { lazy, useEffect } from 'react';
+import { createBrowserRouter, createRoutesFromElements, Navigate, Outlet, Route } from 'react-router-dom';
+import { Role } from '@college-erp/shared';
 import { useAuthStore } from './stores/auth.store';
 import { authApi } from './api/auth.api';
-import { Role } from '@college-erp/shared';
+import { refreshAccessToken } from './api/axios';
 
-// Layouts
+// Layouts & guards
 import { DashboardLayout } from './components/layout/DashboardLayout';
-
-// Shared
-import { ProtectedRoute } from './components/shared/ProtectedRoute';
+import { ProtectedRoute, SessionSplash } from './components/shared/ProtectedRoute';
 import { RoleGate, getDashboardRoute } from './components/shared/RoleGate';
 
-// Pages
+// Eager: first screen for signed-out users
 import { LoginPage } from './pages/auth/LoginPage';
-import { AdminDashboard } from './pages/admin/AdminDashboard';
-import { ManageUsers } from './pages/admin/ManageUsers';
-import { ManageCourses } from './pages/admin/ManageCourses';
-import { SettingsPage } from './pages/admin/SettingsPage';
-import { ManageDepartments } from './pages/admin/ManageDepartments';
-import { ManageEnrollments } from './pages/admin/ManageEnrollments';
-import { FacultyDashboard } from './pages/faculty/FacultyDashboard';
-import { ManageSections } from './pages/faculty/ManageSections';
-import { ManageAttendance as FacultyAttendance } from './pages/faculty/ManageAttendance';
-import { ManageMarks as FacultyMarks } from './pages/faculty/ManageMarks';
-import { ManageGrades as FacultyGrades } from './pages/faculty/ManageGrades';
-import { ManageResults as FacultyResults } from './pages/faculty/ManageResults';
-import { ManageDiscipline as FacultyDiscipline } from './pages/faculty/ManageDiscipline';
-import { ManageFines as FacultyFines } from './pages/faculty/ManageFines';
-import { StudentDashboard } from './pages/student/StudentDashboard';
-import { MyAttendance } from './pages/student/MyAttendance';
-import { MyMarks } from './pages/student/MyMarks';
-import { MyFees } from './pages/student/MyFees';
-import { MyResults } from './pages/student/MyResults';
-import { MyDiscipline } from './pages/student/MyDiscipline';
-import { StudentProfile } from './pages/student/StudentProfile';
-import { NotificationsPage } from './pages/shared/NotificationsPage';
+import { NotFoundPage } from './pages/shared/NotFoundPage';
 
-const App: React.FC = () => {
-  const { isAuthenticated, user, setAuth, setLoading } = useAuthStore();
+// Lazy: each page is its own chunk
+const page = <K extends string>(loader: () => Promise<Record<K, React.ComponentType>>, name: K) =>
+  lazy(() => loader().then((m) => ({ default: m[name] })));
 
-  // Try to restore session on mount via refresh token
+const AdminDashboard = page(() => import('./pages/admin/AdminDashboard'), 'AdminDashboard');
+const ManageUsers = page(() => import('./pages/admin/ManageUsers'), 'ManageUsers');
+const ManageCourses = page(() => import('./pages/admin/ManageCourses'), 'ManageCourses');
+const ManageDepartments = page(() => import('./pages/admin/ManageDepartments'), 'ManageDepartments');
+const ManageEnrollments = page(() => import('./pages/admin/ManageEnrollments'), 'ManageEnrollments');
+const SettingsPage = page(() => import('./pages/admin/SettingsPage'), 'SettingsPage');
+const FacultyDashboard = page(() => import('./pages/faculty/FacultyDashboard'), 'FacultyDashboard');
+const ManageSections = page(() => import('./pages/faculty/ManageSections'), 'ManageSections');
+const FacultyAttendance = page(() => import('./pages/faculty/ManageAttendance'), 'ManageAttendance');
+const FacultyMarks = page(() => import('./pages/faculty/ManageMarks'), 'ManageMarks');
+const FacultyGrades = page(() => import('./pages/faculty/ManageGrades'), 'ManageGrades');
+const FacultyResults = page(() => import('./pages/faculty/ManageResults'), 'ManageResults');
+const FacultyDiscipline = page(() => import('./pages/faculty/ManageDiscipline'), 'ManageDiscipline');
+const FacultyFines = page(() => import('./pages/faculty/ManageFines'), 'ManageFines');
+const StudentDashboard = page(() => import('./pages/student/StudentDashboard'), 'StudentDashboard');
+const MyAttendance = page(() => import('./pages/student/MyAttendance'), 'MyAttendance');
+const MyMarks = page(() => import('./pages/student/MyMarks'), 'MyMarks');
+const MyFees = page(() => import('./pages/student/MyFees'), 'MyFees');
+const MyResults = page(() => import('./pages/student/MyResults'), 'MyResults');
+const MyDiscipline = page(() => import('./pages/student/MyDiscipline'), 'MyDiscipline');
+const StudentProfile = page(() => import('./pages/student/StudentProfile'), 'StudentProfile');
+const NotificationsPage = page(() => import('./pages/shared/NotificationsPage'), 'NotificationsPage');
+
+/** Restores the session from the refresh-token cookie once, on app start. */
+const Root: React.FC = () => {
+  const { isAuthenticated, setAuth, setLoading } = useAuthStore();
+
   useEffect(() => {
+    if (isAuthenticated) {
+      setLoading(false);
+      return;
+    }
     const restoreSession = async () => {
       try {
-        // Use direct axios call to avoid interceptor loop
-        const axios = (await import('axios')).default;
-        const refreshRes = await axios.post('/api/v1/auth/refresh', {}, { withCredentials: true });
-        
-        if (refreshRes.data?.success && refreshRes.data?.data?.accessToken) {
-          const accessToken = refreshRes.data.data.accessToken;
-          // Now use the api instance with the token set
-          const profileRes = await authApi.getProfile();
-          setAuth(profileRes.data, accessToken);
-        } else {
-          setLoading(false);
-        }
+        // Stores the new access token before the profile request uses it.
+        const accessToken = await refreshAccessToken();
+        const profileRes = await authApi.getProfile();
+        setAuth(profileRes.data, accessToken);
       } catch {
-        // No valid session — stay on login
+        // No valid session — stay signed out.
         setLoading(false);
       }
     };
-
-    if (!isAuthenticated) {
-      restoreSession();
-    } else {
-      setLoading(false);
-    }
+    restoreSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return (
-    <Routes>
+  return <Outlet />;
+};
+
+/** Signed-in users skip the login page. */
+const PublicOnly: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading, user } = useAuthStore();
+  if (isLoading) return <SessionSplash />;
+  if (isAuthenticated && user) return <Navigate to={getDashboardRoute(user.role as Role)} replace />;
+  return <>{children}</>;
+};
+
+const RootRedirect: React.FC = () => {
+  const { isAuthenticated, isLoading, user } = useAuthStore();
+  if (isLoading) return <SessionSplash />;
+  return <Navigate to={isAuthenticated && user ? getDashboardRoute(user.role as Role) : '/login'} replace />;
+};
+
+export const router = createBrowserRouter(
+  createRoutesFromElements(
+    <Route element={<Root />}>
       {/* ---- Public ---- */}
-      <Route
-        path="/login"
-        element={
-          isAuthenticated && user ? (
-            <Navigate to={getDashboardRoute(user.role as Role)} replace />
-          ) : (
-            <LoginPage />
-          )
-        }
-      />
+      <Route path="/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
+      <Route path="/" element={<RootRedirect />} />
 
       {/* ---- Protected: Dashboard Layout ---- */}
       <Route
@@ -126,27 +135,13 @@ const App: React.FC = () => {
           <Route path="discipline" element={<MyDiscipline />} />
           <Route path="profile" element={<StudentProfile />} />
         </Route>
-        
-        {/* Shared Notifications Route */}
-        <Route path="/notifications" element={<NotificationsPage />} />
+
+        {/* Notifications come from the student dashboard feed */}
+        <Route path="/notifications" element={<RoleGate allowedRoles={[Role.STUDENT]}><NotificationsPage /></RoleGate>} />
+
+        {/* ---- Catch-All ---- */}
+        <Route path="*" element={<NotFoundPage />} />
       </Route>
-
-      {/* ---- Root Redirect ---- */}
-      <Route
-        path="/"
-        element={
-          isAuthenticated && user ? (
-            <Navigate to={getDashboardRoute(user.role as Role)} replace />
-          ) : (
-            <Navigate to="/login" replace />
-          )
-        }
-      />
-
-      {/* ---- Catch-All ---- */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
-  );
-};
-
-export default App;
+    </Route>
+  )
+);

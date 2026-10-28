@@ -1,152 +1,182 @@
-import React, { useEffect, useState } from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card } from '../../components/shared/Card';
-import { useFacultyStore } from '../../stores/faculty.store';
-import { Loader2, Save } from 'lucide-react';
-import toast from 'react-hot-toast';
+import React, { useCallback, useState } from 'react';
+import { ClipboardCheck, Library } from 'lucide-react';
+import { facultyApi } from '../../api/faculty.api';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
+import { todayISO } from '../../utils/format';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card } from '../../components/ui/Card';
+import { FormField, Input } from '../../components/ui/Form';
+import { Tabs } from '../../components/ui/Tabs';
+import { Alert, EmptyState, ErrorState, SkeletonRows } from '../../components/ui/States';
+import { ConfirmDialog } from '../../components/ui/Dialog';
+import { SectionPicker, useSearchParam, useUpdateSearchParams } from '../../components/faculty/SectionPicker';
+import { AttendanceSheet } from '../../components/faculty/AttendanceSheet';
+import { AttendanceHistory } from '../../components/faculty/AttendanceHistory';
+
+type View = 'mark' | 'history';
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export const ManageAttendance: React.FC = () => {
-  const { sections, isLoading, fetchSections, markAttendance } = useFacultyStore();
-  const [selectedSection, setSelectedSection] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [attendanceData, setAttendanceData] = useState<Record<string, 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED'>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const sections = useApiQuery(facultyApi.getSections, []);
+  const [sectionId, setSectionId] = useSearchParam('section');
+  const [dateParam, setDateParam] = useSearchParam('date');
+  const [viewParam, setViewParam] = useSearchParam('view');
+  const updateParams = useUpdateSearchParams();
+  const date = DATE_PATTERN.test(dateParam) ? dateParam : todayISO();
+  const view: View = viewParam === 'history' ? 'history' : 'mark';
 
-  useEffect(() => {
-    fetchSections();
-  }, [fetchSections]);
+  const section = sections.data?.find((s) => s.id === sectionId);
+  const existing = useApiQuery(
+    section && view === 'mark' ? () => facultyApi.getAttendanceHistory(section.id, date) : null,
+    [section?.id, date, view]
+  );
 
-  const handleSectionChange = (sectionId: string) => {
-    setSelectedSection(sectionId);
-    // Initialize attendance data to PRESENT by default for all enrolled students
-    const section = sections.find((s) => s.id === sectionId);
-    if (section) {
-      const initialData: Record<string, 'PRESENT'> = {};
-      section.enrollments.forEach((e: any) => {
-        initialData[e.studentId] = 'PRESENT';
-      });
-      setAttendanceData(initialData);
-    }
+  // ---- Unsaved changes ----
+  const [isDirty, setIsDirty] = useState(false);
+  const [pendingChange, setPendingChange] = useState<(() => void) | null>(null);
+  const guard = useUnsavedChangesGuard(isDirty);
+  const onDirtyChange = useCallback((dirty: boolean) => setIsDirty(dirty), []);
+
+  const guarded = (change: () => void) => {
+    if (isDirty) setPendingChange(() => change);
+    else change();
+  };
+  const discardAndContinue = () => {
+    setIsDirty(false);
+    pendingChange?.();
+    setPendingChange(null);
   };
 
-  const handleStatusChange = (studentId: string, status: 'PRESENT' | 'ABSENT' | 'LATE' | 'EXCUSED') => {
-    setAttendanceData((prev) => ({ ...prev, [studentId]: status }));
-  };
-
-  const handleSubmit = async () => {
-    if (!selectedSection) return toast.error('Please select a section');
-    
-    setIsSubmitting(true);
-    const records = Object.entries(attendanceData).map(([studentId, status]) => ({
-      studentId,
-      status
-    }));
-
-    try {
-      await markAttendance({ sectionId: selectedSection, date, records });
-      toast.success('Attendance saved successfully');
-    } catch (err) {
-      // error is handled by store
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  if (isLoading && sections.length === 0) {
-    return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>;
-  }
-
-  const currentSection = sections.find((s) => s.id === selectedSection);
+  const isFuture = date > todayISO();
 
   return (
-    <div className="space-y-6">
-      <PageHeader 
-        title="Manage Attendance" 
-        subtitle="Mark daily attendance for your assigned sections."
-      />
+    <Page>
+      <PageHeader title="Attendance" description="Record daily attendance for your sections, or review and correct earlier days." />
 
-      <Card className="p-4 md:p-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Select Section</label>
-            <select
-              value={selectedSection}
-              onChange={(e) => handleSectionChange(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="">-- Choose a Section --</option>
-              {sections.map((sec) => (
-                <option key={sec.id} value={sec.id}>
-                  {sec.course.name} - {sec.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Date</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 focus:ring-2 focus:ring-primary-500"
-            />
-          </div>
-        </div>
-
-        {currentSection && (
-          <div className="space-y-4">
-            <div className="overflow-x-auto border border-surface-200 dark:border-surface-800 rounded-lg">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-surface-50 dark:bg-surface-800/50">
-                  <tr>
-                    <th className="px-4 py-3">Student Name</th>
-                    <th className="px-4 py-3">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
-                  {currentSection.enrollments.map((enrollment: any) => (
-                    <tr key={enrollment.studentId}>
-                      <td className="px-4 py-3 font-medium text-surface-900 dark:text-white">
-                        {enrollment.student.user.firstName} {enrollment.student.user.lastName}
-                      </td>
-                      <td className="px-4 py-3">
-                        <select
-                          value={attendanceData[enrollment.studentId] || 'PRESENT'}
-                          onChange={(e) => handleStatusChange(enrollment.studentId, e.target.value as any)}
-                          className={`px-3 py-1 rounded-md text-sm font-semibold border-0 ${
-                            attendanceData[enrollment.studentId] === 'PRESENT' ? 'bg-emerald-100 text-emerald-700' :
-                            attendanceData[enrollment.studentId] === 'ABSENT' ? 'bg-red-100 text-red-700' :
-                            'bg-amber-100 text-amber-700'
-                          }`}
-                        >
-                          <option value="PRESENT">Present</option>
-                          <option value="ABSENT">Absent</option>
-                          <option value="LATE">Late</option>
-                          <option value="EXCUSED">Excused</option>
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                  {currentSection.enrollments.length === 0 && (
-                    <tr><td colSpan={2} className="px-4 py-8 text-center text-surface-500">No students enrolled.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex justify-end pt-4">
-              <button
-                onClick={handleSubmit}
-                disabled={isSubmitting || currentSection.enrollments.length === 0}
-                className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 text-white font-medium rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+      {sections.error ? (
+        <Card>
+          <ErrorState message={sections.error} onRetry={sections.reload} />
+        </Card>
+      ) : !sections.isLoading && sections.data?.length === 0 ? (
+        <Card>
+          <EmptyState icon={Library} title="No sections assigned to you" description="Attendance can be taken once an administrator assigns you a course section." />
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] md:items-start">
+              <SectionPicker
+                sections={sections.data}
+                isLoading={sections.isLoading}
+                value={sectionId}
+                onChange={(id) => guarded(() => setSectionId(id || null))}
+              />
+              <FormField
+                label="Date"
+                hint={view === 'history' ? 'Not used in history view' : date === todayISO() ? 'Today' : undefined}
+                labelAside={
+                  view === 'mark' &&
+                  date !== todayISO() && (
+                    <button
+                      type="button"
+                      onClick={() => guarded(() => setDateParam(null))}
+                      className="rounded text-[13px] font-medium text-brand-text hover:underline"
+                    >
+                      Today
+                    </button>
+                  )
+                }
               >
-                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Save Attendance
-              </button>
+                <Input
+                  type="date"
+                  value={date}
+                  disabled={view === 'history'}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (DATE_PATTERN.test(value)) guarded(() => setDateParam(value === todayISO() ? null : value));
+                  }}
+                />
+              </FormField>
             </div>
-          </div>
-        )}
-      </Card>
-    </div>
+            {isFuture && view === 'mark' && (
+              <Alert tone="warning" className="mt-4">
+                This date is in the future. Make sure you meant to record attendance ahead of time.
+              </Alert>
+            )}
+          </Card>
+
+          {!section ? (
+            <Card>
+              <EmptyState icon={ClipboardCheck} title="Select a section to begin" description="Its enrolled students will be listed here for marking." />
+            </Card>
+          ) : (
+            <Card flush>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3">
+                <Tabs
+                  label="Attendance view"
+                  idPrefix="attendance"
+                  value={view}
+                  onChange={(next) => guarded(() => setViewParam(next === 'mark' ? null : next))}
+                  items={[
+                    { value: 'mark', label: 'Take attendance' },
+                    { value: 'history', label: 'History' },
+                  ]}
+                />
+                <p className="text-[13px] text-fg-muted">
+                  {section.course.code} · Section {section.name}
+                </p>
+              </div>
+
+              <div role="tabpanel" id="attendance-panel" aria-labelledby={`attendance-tab-${view}`}>
+                {view === 'history' ? (
+                  <AttendanceHistory
+                    section={section}
+                    onEditDate={(d) => updateParams({ date: d === todayISO() ? null : d, view: null })}
+                  />
+                ) : existing.isLoading && !existing.data ? (
+                  <SkeletonRows rows={8} />
+                ) : existing.error ? (
+                  // Without the saved records we can't show the true state, so editing is blocked.
+                  <ErrorState
+                    title="Couldn't load saved attendance for this date"
+                    message={`${existing.error} Attendance can't be edited until the saved records load.`}
+                    onRetry={existing.reload}
+                  />
+                ) : (
+                  <AttendanceSheet
+                    key={`${section.id}|${date}`}
+                    section={section}
+                    date={date}
+                    existing={existing.data ?? []}
+                    onSaved={existing.reload}
+                    onDirtyChange={onDirtyChange}
+                  />
+                )}
+              </div>
+            </Card>
+          )}
+        </>
+      )}
+
+      <ConfirmDialog
+        open={pendingChange !== null || guard.isBlocked}
+        onCancel={() => {
+          setPendingChange(null);
+          guard.cancel();
+        }}
+        onConfirm={() => {
+          if (guard.isBlocked) {
+            setIsDirty(false);
+            guard.proceed();
+          } else discardAndContinue();
+        }}
+        title="Discard unsaved attendance?"
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+      >
+        <p>You have attendance changes that haven't been saved. If you continue, they will be lost.</p>
+      </ConfirmDialog>
+    </Page>
   );
 };

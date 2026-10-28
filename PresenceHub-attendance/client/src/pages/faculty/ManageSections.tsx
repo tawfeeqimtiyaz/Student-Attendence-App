@@ -1,62 +1,69 @@
-import React, { useEffect } from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card } from '../../components/shared/Card';
-import { BookOpen, Users, Loader2 } from 'lucide-react';
-import { useFacultyStore } from '../../stores/faculty.store';
+import React from 'react';
+import { ClipboardCheck, FileText, Library } from 'lucide-react';
+import { facultyApi } from '../../api/faculty.api';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { ROUTES } from '../../constants/routes';
+import { formatNumber } from '../../utils/format';
+import type { FacultyDashboardSection } from '../../types/api';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card } from '../../components/ui/Card';
+import { Badge } from '../../components/ui/Badge';
+import { ButtonLink } from '../../components/ui/Button';
+import { EmptyState, ErrorState, SkeletonRows } from '../../components/ui/States';
+
+/** Rows of sections with shortcuts into the per-section workflows. */
+export function SectionList({ sections }: { sections: FacultyDashboardSection[] }) {
+  return (
+    <ul className="divide-y divide-line">
+      {sections.map((section) => (
+        <li key={section.id} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-subtle font-mono text-[11px] font-semibold text-fg-muted">
+              {section.name}
+            </span>
+            <div className="min-w-0">
+              <p className="truncate font-medium text-fg">{section.course.name}</p>
+              <p className="mt-0.5 text-xs text-fg-subtle">
+                {section.course.code} · Section {section.name} · {section.academicYear} · Semester {section.semester}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <Badge>{formatNumber(section._count.enrollments)} students</Badge>
+                <Badge>{formatNumber(section._count.exams)} exams</Badge>
+                {section.course.credits !== undefined && <Badge>{section.course.credits} credits</Badge>}
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 gap-2 md:ml-4">
+            <ButtonLink to={`${ROUTES.FACULTY_ATTENDANCE}?section=${section.id}`} size="sm" leftIcon={<ClipboardCheck />} className="flex-1 md:flex-none">
+              Attendance
+            </ButtonLink>
+            <ButtonLink to={`${ROUTES.FACULTY_MARKS}?section=${section.id}`} size="sm" leftIcon={<FileText />} className="flex-1 md:flex-none">
+              Marks
+            </ButtonLink>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 export const ManageSections: React.FC = () => {
-  const { dashboard, isLoading, fetchDashboard } = useFacultyStore();
-
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
-
-  if (isLoading || !dashboard) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    );
-  }
+  const { data, error, isLoading, reload } = useApiQuery(facultyApi.getDashboard, []);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="My Sections"
-        subtitle="View and manage your assigned course sections."
-      />
-
-      {dashboard.sections.length === 0 ? (
-        <Card className="p-8 text-center">
-          <BookOpen className="w-12 h-12 mx-auto text-surface-400 mb-3" />
-          <p className="text-surface-500 dark:text-surface-400">No sections assigned yet.</p>
-        </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
-          {dashboard.sections.map((section: any) => (
-            <Card key={section.id} className="p-5 hover:shadow-lg transition-shadow">
-              <div className="flex items-start justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-indigo-500/10 text-indigo-500">
-                  <BookOpen className="w-5 h-5" />
-                </div>
-                <span className="px-2.5 py-1 text-xs font-semibold rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400">
-                  {section.academicYear}
-                </span>
-              </div>
-              <h4 className="font-semibold text-surface-900 dark:text-white text-lg">
-                {section.course?.name ?? 'Course'}
-              </h4>
-              <p className="text-sm text-surface-500 dark:text-surface-400 mt-1">
-                Section: {section.name}
-              </p>
-              <div className="mt-4 pt-4 border-t border-surface-100 dark:border-surface-800 flex items-center text-sm text-surface-500 dark:text-surface-400">
-                <Users className="w-4 h-4 mr-1.5" />
-                {section._count?.enrollments ?? 0} Students Enrolled
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-    </div>
+    <Page>
+      <PageHeader title="My sections" description="Course sections assigned to you, with shortcuts to attendance and marks." />
+      <Card flush>
+        {isLoading ? (
+          <SkeletonRows rows={5} />
+        ) : error ? (
+          <ErrorState message={error} onRetry={reload} />
+        ) : data.sections.length === 0 ? (
+          <EmptyState icon={Library} title="No sections assigned yet" description="An administrator assigns course sections to faculty." />
+        ) : (
+          <SectionList sections={data.sections} />
+        )}
+      </Card>
+    </Page>
   );
 };

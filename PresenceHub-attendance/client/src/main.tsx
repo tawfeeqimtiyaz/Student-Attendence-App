@@ -1,32 +1,35 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { RouterProvider } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import App from './App';
+import { router } from './App';
+import { applyTheme, readThemePreference, resolveTheme } from './utils/theme';
 import './index.css';
+
+// Apply the saved theme before first render (index.html does this pre-paint too).
+applyTheme(resolveTheme(readThemePreference()));
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <App />
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          duration: 4000,
-          style: {
-            fontFamily: 'Inter, sans-serif',
-            borderRadius: '12px',
-            padding: '12px 16px',
-            fontSize: '14px',
-          },
-          success: {
-            iconTheme: { primary: '#10b981', secondary: '#fff' },
-          },
-          error: {
-            iconTheme: { primary: '#ef4444', secondary: '#fff' },
-          },
-        }}
-      />
-    </BrowserRouter>
+    <RouterProvider router={router} />
+    <Toaster
+      position="top-right"
+      containerStyle={{ top: 68, right: 16 }}
+      toastOptions={{
+        duration: 4000,
+        style: {
+          background: 'var(--color-card)',
+          color: 'var(--color-fg)',
+          border: '1px solid var(--color-line)',
+          boxShadow: 'var(--shadow-md)',
+          borderRadius: '10px',
+          padding: '10px 14px',
+          fontSize: '14px',
+          maxWidth: '420px',
+        },
+        success: { iconTheme: { primary: 'var(--color-success)', secondary: 'var(--color-card)' } },
+        error: { iconTheme: { primary: 'var(--color-danger)', secondary: 'var(--color-card)' }, duration: 6000 },
+      }}
+    />
   </React.StrictMode>
 );

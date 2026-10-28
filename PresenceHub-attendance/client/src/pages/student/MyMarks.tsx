@@ -1,80 +1,108 @@
-import React, { useEffect } from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card } from '../../components/shared/Card';
-import { useStudentStore } from '../../stores/student.store';
-import { Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
+import React, { useMemo, useState } from 'react';
+import { FileText } from 'lucide-react';
+import { studentApi } from '../../api/student.api';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { useSort } from '../../hooks/useSort';
+import { usePagination } from '../../hooks/usePagination';
+import { formatDate, formatPercent, humanize } from '../../utils/format';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card } from '../../components/ui/Card';
+import { Badge } from '../../components/ui/Badge';
+import { Select } from '../../components/ui/Form';
+import { SortableTH, Table, TBody, TD, TH, THead, TR, TableMessage, Toolbar } from '../../components/ui/Table';
+import { Pagination } from '../../components/ui/Pagination';
+import { EmptyState, ErrorState, SkeletonRows } from '../../components/ui/States';
 
 export const MyMarks: React.FC = () => {
-  const { marks, isLoading, fetchMarks } = useStudentStore();
+  const { data, error, isLoading, reload } = useApiQuery(studentApi.getMarks, []);
+  const [course, setCourse] = useState('');
 
-  useEffect(() => {
-    fetchMarks();
-  }, [fetchMarks]);
+  const courses = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of data ?? []) map.set(m.exam.course.code, m.exam.course.name);
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [data]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
-    );
-  }
+  const filtered = useMemo(() => (data ?? []).filter((m) => !course || m.exam.course.code === course), [data, course]);
+  const { sorted, sort, toggle } = useSort(
+    filtered,
+    {
+      date: (m) => m.exam.date,
+      course: (m) => m.exam.course.code,
+      score: (m) => (m.exam.maxMarks ? m.obtainedMarks / m.exam.maxMarks : 0),
+    },
+    { key: 'date', direction: 'desc' }
+  );
+  const pagination = usePagination(sorted, course);
 
   return (
-    <div className="space-y-6">
-      <PageHeader 
-        title="My Marks" 
-        subtitle="Subject-wise marks and exam records."
-      />
-      <Card noPadding>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-surface-50 dark:bg-surface-800/50 text-surface-500 dark:text-surface-400 font-medium">
-              <tr>
-                <th className="px-5 py-3">Course</th>
-                <th className="px-5 py-3">Exam Type</th>
-                <th className="px-5 py-3">Date</th>
-                <th className="px-5 py-3">Marks Obtained</th>
-                <th className="px-5 py-3">Max Marks</th>
-                <th className="px-5 py-3">Remarks</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
-              {marks.map((mark: any) => (
-                <tr key={mark.id} className="hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors">
-                  <td className="px-5 py-4 text-surface-900 dark:text-white font-medium">
-                    {mark.exam.course.name}
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400">
-                      {mark.exam.type}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 text-surface-500 dark:text-surface-400 whitespace-nowrap">
-                    {format(new Date(mark.exam.date), 'MMM dd, yyyy')}
-                  </td>
-                  <td className="px-5 py-4 text-surface-900 dark:text-white font-semibold">
-                    {mark.obtainedMarks}
-                  </td>
-                  <td className="px-5 py-4 text-surface-500 dark:text-surface-400">
-                    {mark.exam.maxMarks}
-                  </td>
-                  <td className="px-5 py-4 text-surface-500 dark:text-surface-400">
-                    {mark.remarks || '-'}
-                  </td>
-                </tr>
-              ))}
-              {marks.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-surface-500">
-                    No marks records found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+    <Page>
+      <PageHeader title="Marks" description="Scores for every exam and assessment you've taken." />
+      <Card flush>
+        <Toolbar>
+          <Select aria-label="Filter by course" value={course} onChange={(e) => setCourse(e.target.value)} className="sm:w-72">
+            <option value="">All courses</option>
+            {courses.map(([code, name]) => (
+              <option key={code} value={code}>
+                {code} — {name}
+              </option>
+            ))}
+          </Select>
+        </Toolbar>
+        <Table label="Marks" minWidth={680}>
+          <THead>
+            <tr>
+              <SortableTH label="Course" sortKey="course" sort={sort} onSort={toggle} />
+              <TH>Exam</TH>
+              <SortableTH label="Date" sortKey="date" sort={sort} onSort={toggle} />
+              <SortableTH label="Score" sortKey="score" sort={sort} onSort={toggle} alignTo="right" />
+              <TH alignTo="right">Percent</TH>
+              <TH>Remarks</TH>
+            </tr>
+          </THead>
+          <TBody>
+            {isLoading ? (
+              <TableMessage colSpan={6}>
+                <SkeletonRows rows={5} />
+              </TableMessage>
+            ) : error ? (
+              <TableMessage colSpan={6}>
+                <ErrorState message={error} onRetry={reload} />
+              </TableMessage>
+            ) : pagination.total === 0 ? (
+              <TableMessage colSpan={6}>
+                <EmptyState icon={FileText} title={course ? 'No marks for this course yet' : 'No marks recorded yet'} />
+              </TableMessage>
+            ) : (
+              pagination.pageItems.map((m) => {
+                const pct = m.exam.maxMarks ? (m.obtainedMarks / m.exam.maxMarks) * 100 : null;
+                return (
+                  <TR key={m.id}>
+                    <TD>
+                      <p className="font-medium text-fg">{m.exam.course.name}</p>
+                      <p className="font-mono text-xs text-fg-subtle">{m.exam.course.code}</p>
+                    </TD>
+                    <TD>
+                      <p className="text-fg">{m.exam.name}</p>
+                      <Badge className="mt-1">{humanize(m.exam.type)}</Badge>
+                    </TD>
+                    <TD className="whitespace-nowrap text-fg-muted">{formatDate(m.exam.date)}</TD>
+                    <TD alignTo="right" className="whitespace-nowrap tabular-nums">
+                      <span className="font-semibold">{m.obtainedMarks}</span>
+                      <span className="text-fg-subtle"> / {m.exam.maxMarks}</span>
+                    </TD>
+                    <TD alignTo="right" className="tabular-nums text-fg-muted">
+                      {formatPercent(pct)}
+                    </TD>
+                    <TD className="text-fg-muted">{m.remarks || '—'}</TD>
+                  </TR>
+                );
+              })
+            )}
+          </TBody>
+        </Table>
+        <Pagination state={pagination} noun="marks" />
       </Card>
-    </div>
+    </Page>
   );
 };

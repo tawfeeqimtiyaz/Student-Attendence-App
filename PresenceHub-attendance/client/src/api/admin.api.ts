@@ -2,63 +2,51 @@
 // Admin API — HTTP Client Layer
 // ============================================
 
-import api from './axios';
+import type { ApiResponse } from '@college-erp/shared';
+import api, { unwrap } from './axios';
+import type {
+  AdminCourse,
+  AdminDashboard,
+  AdminDepartment,
+  AdminEnrollment,
+  AdminSection,
+  AdminUser,
+  CreateCourseInput,
+  CreateUserInput,
+} from '../types/api';
 
 export const adminApi = {
   // Dashboard
-  getDashboard: () => api.get('/admin/dashboard'),
+  getDashboard: () => api.get<ApiResponse<AdminDashboard>>('/admin/dashboard').then(unwrap),
 
   // Users
   listUsers: (params?: { role?: string; search?: string }) =>
-    api.get('/admin/users', { params }),
-  createUser: (data: {
-    email: string;
-    password: string;
-    firstName: string;
-    lastName: string;
-    role: string;
-    departmentId?: string;
-    rollNumber?: string;
-    semester?: number;
-    employeeId?: string;
-    designation?: string;
-  }) => api.post('/admin/users', data),
+    api.get<ApiResponse<AdminUser[]>>('/admin/users', { params }).then(unwrap),
+  createUser: (data: CreateUserInput) => api.post('/admin/users', data),
   toggleUserStatus: (userId: string) =>
     api.patch(`/admin/users/${userId}/toggle-status`),
 
   // Departments
-  listDepartments: () => api.get('/admin/departments'),
+  listDepartments: () => api.get<ApiResponse<AdminDepartment[]>>('/admin/departments').then(unwrap),
   createDepartment: (data: { name: string; code: string }) =>
     api.post('/admin/departments', data),
 
   // Courses
-  listCourses: () => api.get('/admin/courses'),
-  createCourse: (data: {
-    code: string;
-    name: string;
-    credits: number;
-    departmentId: string;
-    semester: number;
-    description?: string;
-  }) => api.post('/admin/courses', data),
+  listCourses: () => api.get<ApiResponse<AdminCourse[]>>('/admin/courses').then(unwrap),
+  createCourse: (data: CreateCourseInput) => api.post('/admin/courses', data),
 
   // Sections
-  listSections: () => api.get('/admin/sections'),
-  createSection: (data: {
-    courseId: string;
-    facultyId: string;
-    name: string;
-    academicYear: string;
-    semester: number;
-  }) => api.post('/admin/sections', data),
-  enrollStudent: (data: { studentId: string; sectionId: string }) =>
-    api.post('/admin/sections/enroll', data),
+  listSections: () => api.get<ApiResponse<AdminSection[]>>('/admin/sections').then(unwrap),
 
   // Enrollments
   listEnrollments: (sectionId?: string) =>
-    api.get('/admin/enrollments', { params: sectionId ? { sectionId } : {} }),
+    api
+      .get<ApiResponse<AdminEnrollment[]>>('/admin/enrollments', { params: sectionId ? { sectionId } : {} })
+      .then(unwrap),
   enrollDepartmentStudents: (data: { sectionId: string; departmentId: string }) =>
-    api.post('/admin/enrollments/bulk', data),
+    api
+      .post<ApiResponse<{ enrolled: number; total: number }>>('/admin/enrollments/bulk', data)
+      .then((res) => res.data),
   removeEnrollment: (studentId: string, sectionId: string) =>
     api.delete(`/admin/enrollments/${studentId}/${sectionId}`),
 };

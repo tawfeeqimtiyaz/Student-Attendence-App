@@ -10,6 +10,17 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Framework code changes rarely — keep it in its own long-cached chunk.
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          vendor: ['axios', 'zod', 'zustand', 'react-hook-form', 'react-hot-toast', 'date-fns', 'clsx', 'tailwind-merge'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

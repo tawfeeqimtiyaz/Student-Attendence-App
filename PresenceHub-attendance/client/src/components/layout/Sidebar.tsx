@@ -1,232 +1,146 @@
 // ============================================
-// Sidebar — ChatGPT-style Collapsible Navigation
+// Sidebar — fixed, collapsible on desktop; a modal drawer below lg
 // ============================================
 
 import React, { useEffect } from 'react';
-import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { LogOut, GraduationCap, X, PanelLeftClose, PanelLeft } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { useAuthStore } from '../../stores/auth.store';
-import { authApi } from '../../api/auth.api';
-import { getNavigationForRole } from '../../constants/navigation';
+import { NavLink, useLocation } from 'react-router-dom';
+import { PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import { Role } from '@college-erp/shared';
-import { cn } from '../../utils/cn';
-import toast from 'react-hot-toast';
+import { useAuthStore } from '../../stores/auth.store';
+import { getNavigationForRole, PORTAL_LABELS, ROLE_LABELS, type NavItem } from '../../constants/navigation';
 import { useUI } from '../../contexts/UIContext';
+import { cn } from '../../utils/cn';
+import { fullName } from '../../utils/format';
+import { BrandLockup } from './BrandMark';
+import { Tooltip } from '../ui/Tooltip';
+import { Dialog } from '../ui/Dialog';
+import { IconButton } from '../ui/Button';
+import { Avatar } from '../ui/Avatar';
 
-export const SIDEBAR_WIDTH_EXPANDED = 256; // 16rem = w-64
-export const SIDEBAR_WIDTH_COLLAPSED = 64; // 4rem = w-16
-
-export const Sidebar: React.FC = () => {
-  const { user, logout } = useAuthStore();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const { isSidebarOpen, closeSidebar, isSidebarCollapsed, toggleCollapse } = useUI();
-
-  // Close mobile overlay on navigation
-  useEffect(() => {
-    closeSidebar();
-  }, [location.pathname]);
-
-  if (!user) return null;
-
-  const navigation = getNavigationForRole(user.role as Role);
-
-  const handleLogout = async () => {
-    try {
-      await authApi.logout();
-    } catch {
-      // Even if API fails, clear local state
-    }
-    logout();
-    navigate('/login');
-    toast.success('Logged out successfully');
-  };
-
-  const roleLabel = user.role === 'ADMIN' ? 'Administrator' : user.role === 'FACULTY' ? 'Faculty' : 'Student';
-  const roleColor = user.role === 'ADMIN'
-    ? 'bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-400'
-    : user.role === 'FACULTY'
-    ? 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400'
-    : 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400';
-
-  // ---- Sidebar content (used in both desktop & mobile) ----
-  const sidebarContent = (collapsed: boolean) => (
-    <aside
-      className={cn(
-        'h-full flex flex-col bg-white dark:bg-surface-900 border-r border-surface-200 dark:border-surface-800 transition-all duration-300 ease-in-out overflow-hidden',
-        collapsed ? 'w-16' : 'w-64'
-      )}
-    >
-      {/* ---- Logo Area ---- */}
-      <div className={cn(
-        'flex items-center border-b border-surface-100 dark:border-surface-800 flex-shrink-0',
-        collapsed ? 'justify-center px-2 py-5' : 'justify-between gap-3 px-5 py-5'
-      )}>
-        {collapsed ? (
-          <div className="flex items-center justify-center w-10 h-10 rounded-xl gradient-primary">
-            <GraduationCap className="w-5 h-5 text-white" />
-          </div>
-        ) : (
+function SidebarLink({ item, collapsed, onNavigate }: { item: NavItem; collapsed: boolean; onNavigate?: () => void }) {
+  const Icon = item.icon;
+  return (
+    <Tooltip content={item.label} disabled={!collapsed}>
+      <NavLink
+        to={item.path}
+        end={item.end}
+        onClick={onNavigate}
+        className={({ isActive }) =>
+          cn(
+            'group relative flex h-9 items-center rounded-md text-sm font-medium transition-colors',
+            collapsed ? 'w-11 justify-center' : 'gap-3 px-2.5',
+            isActive
+              ? 'bg-brand-soft text-brand-text'
+              : 'text-fg-muted hover:bg-subtle hover:text-fg'
+          )
+        }
+      >
+        {({ isActive }) => (
           <>
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex items-center justify-center w-10 h-10 rounded-xl gradient-primary flex-shrink-0">
-                <GraduationCap className="w-5 h-5 text-white" />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-lg font-bold text-surface-900 dark:text-white leading-tight whitespace-nowrap">College ERP</h1>
-                <span className={cn('text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap', roleColor)}>
-                  {roleLabel}
-                </span>
-              </div>
-            </div>
-            {/* Close button (mobile only) */}
-            <button
-              onClick={closeSidebar}
-              className="lg:hidden p-1 rounded-md text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 flex-shrink-0"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <Icon
+              className={cn(
+                'size-[18px] shrink-0 transition-colors',
+                isActive ? 'text-brand-text' : 'text-fg-subtle group-hover:text-fg-muted'
+              )}
+            />
+            <span className={cn('truncate', collapsed && 'sr-only')}>{item.label}</span>
           </>
         )}
-      </div>
+      </NavLink>
+    </Tooltip>
+  );
+}
 
-      {/* ---- Collapse toggle (desktop only) ---- */}
-      <div className={cn(
-        'hidden lg:flex items-center px-3 py-2 border-b border-surface-100 dark:border-surface-800 flex-shrink-0',
-        collapsed ? 'justify-center' : 'justify-end'
-      )}>
-        <button
-          onClick={toggleCollapse}
-          className="p-1.5 rounded-lg text-surface-400 hover:bg-surface-100 dark:hover:bg-surface-800 hover:text-surface-600 dark:hover:text-surface-200 transition-colors"
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {collapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-        </button>
-      </div>
-
-      {/* ---- Navigation ---- */}
-      <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4 custom-scrollbar">
-        {navigation.map((section, sIdx) => (
-          <div key={sIdx}>
-            {section.title && !collapsed && (
-              <p className="px-3 mb-2 text-[11px] font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400 whitespace-nowrap">
-                {section.title}
-              </p>
-            )}
-            {section.title && collapsed && (
-              <div className="w-8 mx-auto my-2 border-t border-surface-200 dark:border-surface-700" />
+function SidebarNav({ role, collapsed, onNavigate }: { role: Role; collapsed: boolean; onNavigate?: () => void }) {
+  const sections = getNavigationForRole(role);
+  return (
+    <nav aria-label="Main" className={cn('flex-1 overflow-y-auto overflow-x-hidden py-4', collapsed ? 'px-3' : 'px-3')}>
+      <ul className="space-y-5">
+        {sections.map((section, index) => (
+          <li key={section.title}>
+            {collapsed ? (
+              index > 0 && <div aria-hidden className="mx-2 mb-3 h-px bg-line" />
+            ) : (
+              <p className="mb-1.5 px-2.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-fg-subtle">{section.title}</p>
             )}
             <ul className="space-y-0.5">
               {section.items.map((item) => (
                 <li key={item.path}>
-                  <NavLink
-                    to={item.path}
-                    title={collapsed ? item.label : undefined}
-                    className={({ isActive }) =>
-                      cn(
-                        'flex items-center rounded-lg text-sm font-medium transition-all duration-200 group relative',
-                        collapsed ? 'justify-center px-2 py-2.5' : 'gap-3 px-3 py-2.5',
-                        isActive
-                          ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 shadow-sm'
-                          : 'text-surface-600 hover:bg-surface-100 hover:text-surface-900 dark:text-surface-300 dark:hover:bg-surface-800/50 dark:hover:text-white'
-                      )
-                    }
-                  >
-                    {({ isActive }) => (
-                      <>
-                        <item.icon
-                          className={cn(
-                            'w-[18px] h-[18px] flex-shrink-0',
-                            isActive ? 'text-primary-600 dark:text-primary-400' : 'text-surface-400 dark:text-surface-500'
-                          )}
-                        />
-                        {!collapsed && <span className="whitespace-nowrap">{item.label}</span>}
-                        {!collapsed && item.badge && item.badge > 0 && (
-                          <span className="ml-auto flex items-center justify-center min-w-[20px] h-5 px-1.5 text-[11px] font-bold bg-danger text-white rounded-full">
-                            {item.badge}
-                          </span>
-                        )}
-                        {/* Tooltip on collapsed state */}
-                        {collapsed && (
-                          <span className="absolute left-full ml-2 px-2.5 py-1 text-xs font-medium bg-surface-900 text-white dark:bg-surface-100 dark:text-surface-900 rounded-md shadow-lg whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50">
-                            {item.label}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </NavLink>
+                  <SidebarLink item={item} collapsed={collapsed} onNavigate={onNavigate} />
                 </li>
               ))}
             </ul>
-          </div>
+          </li>
         ))}
-      </nav>
-
-      {/* ---- User Profile + Logout ---- */}
-      <div className="border-t border-surface-100 dark:border-surface-800 px-2 py-3 mt-auto flex-shrink-0">
-        <div className={cn(
-          'flex items-center gap-2 px-2 py-2',
-          collapsed ? 'flex-col' : 'flex-row'
-        )}>
-          <div className="w-9 h-9 rounded-full gradient-accent flex items-center justify-center text-white text-sm font-bold flex-shrink-0 shadow-sm">
-            {user.firstName[0]}{user.lastName[0]}
-          </div>
-          {!collapsed && (
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-surface-900 dark:text-white truncate">
-                {user.firstName} {user.lastName}
-              </p>
-              <p className="text-[11px] text-surface-500 dark:text-surface-400 truncate">{user.email}</p>
-            </div>
-          )}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleLogout}
-            className="p-2 rounded-lg text-surface-400 hover:text-danger hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors flex-shrink-0"
-            title="Logout"
-          >
-            <LogOut className="w-4 h-4" />
-          </motion.button>
-        </div>
-      </div>
-    </aside>
+      </ul>
+    </nav>
   );
+}
+
+export const Sidebar: React.FC = () => {
+  const user = useAuthStore((s) => s.user);
+  const location = useLocation();
+  const { isSidebarOpen, closeSidebar, isSidebarCollapsed, toggleCollapse } = useUI();
+
+  // Close the mobile drawer after navigation.
+  useEffect(() => {
+    closeSidebar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  if (!user) return null;
+  const role = user.role as Role;
+  const collapsed = isSidebarCollapsed;
 
   return (
     <>
-      {/* Desktop Sidebar — always visible, collapsible */}
-      <div
-        className="hidden lg:block fixed inset-y-0 left-0 z-40 transition-all duration-300 ease-in-out"
-        style={{ width: isSidebarCollapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED }}
-      >
-        {sidebarContent(isSidebarCollapsed)}
-      </div>
-
-      {/* Mobile Sidebar Overlay */}
-      <AnimatePresence>
-        {isSidebarOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={closeSidebar}
-              className="fixed inset-0 bg-surface-900/50 backdrop-blur-sm z-40 lg:hidden"
-            />
-            <motion.div
-              initial={{ x: '-100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '-100%' }}
-              transition={{ type: 'spring', bounce: 0, duration: 0.3 }}
-              className="fixed inset-y-0 left-0 z-50 lg:hidden"
-            >
-              {sidebarContent(false)}
-            </motion.div>
-          </>
+      {/* ---- Desktop ---- */}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-line bg-card transition-[width] duration-200 ease-out lg:flex',
+          collapsed ? 'w-sidebar-collapsed' : 'w-sidebar'
         )}
-      </AnimatePresence>
+      >
+        <div className={cn('flex h-header shrink-0 items-center border-b border-line', collapsed ? 'justify-center' : 'pl-[15px] pr-3')}>
+          <BrandLockup subtitle={PORTAL_LABELS[role]} collapsed={collapsed} />
+        </div>
+
+        <SidebarNav role={role} collapsed={collapsed} />
+
+        <div className="shrink-0 border-t border-line p-3">
+          <Tooltip content={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} disabled={!collapsed}>
+            <button
+              type="button"
+              onClick={toggleCollapse}
+              aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!collapsed}
+              className={cn(
+                'flex h-9 items-center rounded-md text-sm font-medium text-fg-muted transition-colors hover:bg-subtle hover:text-fg',
+                collapsed ? 'w-11 justify-center' : 'w-full gap-3 px-2.5'
+              )}
+            >
+              {collapsed ? <PanelLeftOpen className="size-[18px] text-fg-subtle" /> : <PanelLeftClose className="size-[18px] text-fg-subtle" />}
+              {!collapsed && <span>Collapse</span>}
+            </button>
+          </Tooltip>
+        </div>
+      </aside>
+
+      {/* ---- Mobile drawer ---- */}
+      <Dialog open={isSidebarOpen} onClose={closeSidebar} title="Navigation" variant="drawer-left" bare className="lg:hidden">
+        <div className="flex h-header shrink-0 items-center justify-between border-b border-line pl-[15px] pr-3">
+          <BrandLockup subtitle={PORTAL_LABELS[role]} />
+          <IconButton label="Close navigation" icon={<X />} size="sm" onClick={closeSidebar} />
+        </div>
+        <SidebarNav role={role} collapsed={false} onNavigate={closeSidebar} />
+        <div className="flex shrink-0 items-center gap-3 border-t border-line px-[15px] py-3">
+          <Avatar person={user} />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-fg">{fullName(user)}</p>
+            <p className="truncate text-xs text-fg-subtle">{ROLE_LABELS[role]}</p>
+          </div>
+        </div>
+      </Dialog>
     </>
   );
 };

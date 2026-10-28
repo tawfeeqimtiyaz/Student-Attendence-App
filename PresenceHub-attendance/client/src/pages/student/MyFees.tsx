@@ -1,85 +1,97 @@
-import React, { useEffect } from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card, CardHeader } from '../../components/shared/Card';
-import { useStudentStore } from '../../stores/student.store';
-import { Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
+import React, { useMemo } from 'react';
+import { Wallet } from 'lucide-react';
+import { studentApi } from '../../api/student.api';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { FEE_STATUS_META } from '../../constants/status';
+import { formatCurrency, formatDate, humanize } from '../../utils/format';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card } from '../../components/ui/Card';
+import { StatCard } from '../../components/ui/Stats';
+import { Badge } from '../../components/ui/Badge';
+import { Table, TBody, TD, TH, THead, TR, TableMessage } from '../../components/ui/Table';
+import { EmptyState, ErrorState, PageSkeleton } from '../../components/ui/States';
 
 export const MyFees: React.FC = () => {
-  const { fees, isLoading, fetchFees } = useStudentStore();
+  const { data, error, isLoading, reload } = useApiQuery(studentApi.getFees, []);
 
-  useEffect(() => {
-    fetchFees();
-  }, [fetchFees]);
+  const totals = useMemo(() => {
+    const fees = data ?? [];
+    const billed = fees.reduce((sum, f) => sum + f.amount, 0);
+    const paid = fees.reduce((sum, f) => sum + f.paidAmount, 0);
+    return { billed, paid, balance: billed - paid };
+  }, [data]);
 
-  if (isLoading) {
+  if (isLoading) return <PageSkeleton stats={3} />;
+  if (error) {
     return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
+      <Page>
+        <PageHeader title="Fees" />
+        <Card>
+          <ErrorState message={error} onRetry={reload} />
+        </Card>
+      </Page>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <PageHeader 
-        title="Fee Details" 
-        subtitle="Manage your academic fees and fine records."
-      />
-      <Card noPadding>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-surface-50 dark:bg-surface-800/50 text-surface-500 dark:text-surface-400 font-medium">
-              <tr>
-                <th className="px-5 py-3">Fee Type</th>
-                <th className="px-5 py-3">Academic Term</th>
-                <th className="px-5 py-3">Due Date</th>
-                <th className="px-5 py-3">Total Amount</th>
-                <th className="px-5 py-3">Paid</th>
-                <th className="px-5 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
-              {fees.map((fee: any) => (
-                <tr key={fee.id} className="hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors">
-                  <td className="px-5 py-4 text-surface-900 dark:text-white font-medium">
-                    {fee.type}
-                  </td>
-                  <td className="px-5 py-4 text-surface-500 dark:text-surface-400">
-                    {fee.academicYear} - Sem {fee.semester}
-                  </td>
-                  <td className="px-5 py-4 text-surface-500 dark:text-surface-400 whitespace-nowrap">
-                    {format(new Date(fee.dueDate), 'MMM dd, yyyy')}
-                  </td>
-                  <td className="px-5 py-4 text-surface-900 dark:text-white font-semibold">
-                    ${fee.amount.toFixed(2)}
-                  </td>
-                  <td className="px-5 py-4 text-emerald-600 font-medium">
-                    ${fee.paidAmount.toFixed(2)}
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
-                      fee.status === 'PAID' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' :
-                      fee.status === 'OVERDUE' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
-                      fee.status === 'PARTIALLY_PAID' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
-                      'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
-                    }`}>
-                      {fee.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-              {fees.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="px-5 py-8 text-center text-surface-500">
-                    No fee records found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+    <Page>
+      <PageHeader title="Fees" description="Your fees and fines, what you've paid and what remains due." />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatCard label="Total billed" value={formatCurrency(totals.billed)} hint={`${data.length} fee items`} />
+        <StatCard label="Paid" value={formatCurrency(totals.paid)} />
+        <StatCard label="Balance" value={formatCurrency(totals.balance)} hint={totals.balance > 0 ? 'Remaining to be paid' : 'Nothing outstanding'} />
+      </div>
+
+      <Card flush>
+        <Table label="Fees" minWidth={720}>
+          <THead>
+            <tr>
+              <TH>Fee</TH>
+              <TH>Term</TH>
+              <TH>Due date</TH>
+              <TH alignTo="right">Amount</TH>
+              <TH alignTo="right">Paid</TH>
+              <TH alignTo="right">Balance</TH>
+              <TH>Status</TH>
+            </tr>
+          </THead>
+          <TBody>
+            {data.length === 0 ? (
+              <TableMessage colSpan={7}>
+                <EmptyState icon={Wallet} title="No fees on record" />
+              </TableMessage>
+            ) : (
+              data.map((fee) => {
+                const status = FEE_STATUS_META[fee.status] ?? { label: humanize(fee.status), tone: 'neutral' as const, icon: undefined };
+                return (
+                  <TR key={fee.id}>
+                    <TD className="font-medium">{humanize(fee.type)}</TD>
+                    <TD className="whitespace-nowrap text-fg-muted">
+                      {fee.academicYear} · Sem {fee.semester}
+                    </TD>
+                    <TD className="whitespace-nowrap text-fg-muted">{formatDate(fee.dueDate)}</TD>
+                    <TD alignTo="right" className="tabular-nums">
+                      {formatCurrency(fee.amount)}
+                    </TD>
+                    <TD alignTo="right" className="tabular-nums text-fg-muted">
+                      {formatCurrency(fee.paidAmount)}
+                    </TD>
+                    <TD alignTo="right" className="font-medium tabular-nums">
+                      {formatCurrency(fee.amount - fee.paidAmount)}
+                    </TD>
+                    <TD>
+                      <Badge tone={status.tone} icon={status.icon}>
+                        {status.label}
+                      </Badge>
+                    </TD>
+                  </TR>
+                );
+              })
+            )}
+          </TBody>
+        </Table>
       </Card>
-    </div>
+    </Page>
   );
 };

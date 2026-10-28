@@ -3,7 +3,8 @@
 // ============================================
 
 import api from './axios';
-import type { LoginRequest, LoginResponse, UserProfile, ApiResponse } from '@college-erp/shared';
+import type { LoginRequest, UserProfile, ApiResponse } from '@college-erp/shared';
+import type { ProfileDetails } from '../types/api';
 
 export const authApi = {
   login: async (data: LoginRequest) => {
@@ -22,7 +23,7 @@ export const authApi = {
   },
 
   getProfile: async () => {
-    const res = await api.get<ApiResponse<UserProfile>>('/auth/me');
+    const res = await api.get<ApiResponse<ProfileDetails>>('/auth/me');
     return res.data;
   },
 

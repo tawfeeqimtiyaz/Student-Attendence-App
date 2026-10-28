@@ -1,81 +1,163 @@
-import React, { useEffect } from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card } from '../../components/shared/Card';
-import { useStudentStore } from '../../stores/student.store';
-import { Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
+import React, { useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { ClipboardCheck } from 'lucide-react';
+import { AttendanceStatus } from '@college-erp/shared';
+import { studentApi } from '../../api/student.api';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { useSort } from '../../hooks/useSort';
+import { usePagination } from '../../hooks/usePagination';
+import { ATTENDANCE_META, ATTENDANCE_STATUSES } from '../../constants/status';
+import { overallCounts, presentRate, summarizeByCourse } from '../../utils/attendance';
+import { formatDate, formatPercent } from '../../utils/format';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card, CardHeader } from '../../components/ui/Card';
+import { StatCard } from '../../components/ui/Stats';
+import { Badge } from '../../components/ui/Badge';
+import { Button } from '../../components/ui/Button';
+import { Select } from '../../components/ui/Form';
+import { SortableTH, Table, TBody, TD, TH, THead, TR, TableMessage, Toolbar } from '../../components/ui/Table';
+import { Pagination } from '../../components/ui/Pagination';
+import { EmptyState, ErrorState, PageSkeleton } from '../../components/ui/States';
+import { CourseAttendanceList } from '../../components/student/CourseAttendanceList';
 
 export const MyAttendance: React.FC = () => {
-  const { attendance, isLoading, fetchAttendance } = useStudentStore();
+  const { data, error, isLoading, reload } = useApiQuery(studentApi.getAttendance, []);
+  const [params, setParams] = useSearchParams();
+  const course = params.get('course') ?? '';
+  const statusParam = params.get('status') ?? '';
+  const status = (ATTENDANCE_STATUSES as string[]).includes(statusParam) ? (statusParam as AttendanceStatus) : '';
 
-  useEffect(() => {
-    fetchAttendance();
-  }, [fetchAttendance]);
+  const records = data ?? [];
+  const courses = useMemo(() => summarizeByCourse(records), [records]);
+  const counts = useMemo(() => overallCounts(records), [records]);
 
-  if (isLoading) {
+  const filtered = useMemo(
+    () => records.filter((r) => (!course || r.section.course.code === course) && (!status || r.status === status)),
+    [records, course, status]
+  );
+  const { sorted, sort, toggle } = useSort(
+    filtered,
+    { date: (r) => r.date, course: (r) => r.section.course.code, status: (r) => r.status },
+    { key: 'date', direction: 'desc' }
+  );
+  const pagination = usePagination(sorted, `${course}|${status}`, 25);
+
+  const setFilter = (key: string, value: string) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set(key, value);
+        else next.delete(key);
+        return next;
+      },
+      { replace: true }
+    );
+
+  if (isLoading) return <PageSkeleton stats={4} />;
+  if (error) {
     return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
+      <Page>
+        <PageHeader title="Attendance" />
+        <Card>
+          <ErrorState message={error} onRetry={reload} />
+        </Card>
+      </Page>
     );
   }
 
+  const hasFilters = Boolean(course || status);
+
   return (
-    <div className="space-y-6">
-      <PageHeader 
-        title="My Attendance" 
-        subtitle="View your daily class attendance records."
-      />
-      <Card noPadding>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-surface-50 dark:bg-surface-800/50 text-surface-500 dark:text-surface-400 font-medium">
-              <tr>
-                <th className="px-5 py-3">Date</th>
-                <th className="px-5 py-3">Course</th>
-                <th className="px-5 py-3">Section</th>
-                <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Remarks</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
-              {attendance.map((record: any) => (
-                <tr key={record.id} className="hover:bg-surface-50 dark:hover:bg-surface-800/50 transition-colors">
-                  <td className="px-5 py-4 whitespace-nowrap text-surface-900 dark:text-white">
-                    {format(new Date(record.date), 'MMM dd, yyyy')}
-                  </td>
-                  <td className="px-5 py-4 text-surface-700 dark:text-surface-300 font-medium">
-                    {record.section.course.name}
-                  </td>
-                  <td className="px-5 py-4 text-surface-500 dark:text-surface-400">
-                    {record.section.name}
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${
-                      record.status === 'PRESENT' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-400' :
-                      record.status === 'ABSENT' ? 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400' :
-                      record.status === 'LATE' ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-400' :
-                      'bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-400'
-                    }`}>
-                      {record.status}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4 text-surface-500 dark:text-surface-400">
-                    {record.remarks || '-'}
-                  </td>
-                </tr>
-              ))}
-              {attendance.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-5 py-8 text-center text-surface-500">
-                    No attendance records found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+    <Page>
+      <PageHeader title="Attendance" description="Your attendance in every course, and each class as it was recorded." />
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Overall" value={formatPercent(presentRate(counts))} hint={`${counts.PRESENT} of ${records.length} classes present`} />
+        <StatCard label="Absent" value={counts.ABSENT} hint="Classes missed" />
+        <StatCard label="Late" value={counts.LATE} hint="Arrived after start" />
+        <StatCard label="Excused" value={counts.EXCUSED} hint="Approved absences" />
+      </div>
+
+      <Card>
+        <CardHeader title="By course" description="Share of classes marked present" />
+        <div className="mt-5">
+          {courses.length === 0 ? (
+            <EmptyState compact icon={ClipboardCheck} title="No attendance recorded yet" description="Records appear here once your teachers mark attendance." />
+          ) : (
+            <CourseAttendanceList courses={courses} />
+          )}
         </div>
       </Card>
-    </div>
+
+      <Card flush>
+        <div className="px-5 pt-5">
+          <CardHeader title="Class records" />
+        </div>
+        <Toolbar className="mt-4 border-t">
+          <div className="grid grid-cols-1 gap-3 sm:flex">
+            <Select aria-label="Filter by course" value={course} onChange={(e) => setFilter('course', e.target.value)} className="sm:w-64">
+              <option value="">All courses</option>
+              {courses.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.code} — {c.name}
+                </option>
+              ))}
+            </Select>
+            <Select aria-label="Filter by status" value={status} onChange={(e) => setFilter('status', e.target.value)} className="sm:w-44">
+              <option value="">All statuses</option>
+              {ATTENDANCE_STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {ATTENDANCE_META[s].label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          {hasFilters && (
+            <Button variant="ghost" size="sm" onClick={() => setParams({}, { replace: true })} className="sm:ml-auto">
+              Clear filters
+            </Button>
+          )}
+        </Toolbar>
+        <Table label="Attendance records" minWidth={600}>
+          <THead>
+            <tr>
+              <SortableTH label="Date" sortKey="date" sort={sort} onSort={toggle} />
+              <SortableTH label="Course" sortKey="course" sort={sort} onSort={toggle} />
+              <TH>Section</TH>
+              <SortableTH label="Status" sortKey="status" sort={sort} onSort={toggle} />
+              <TH>Remarks</TH>
+            </tr>
+          </THead>
+          <TBody>
+            {pagination.total === 0 ? (
+              <TableMessage colSpan={5}>
+                <EmptyState compact title={hasFilters ? 'No records match these filters' : 'No attendance records yet'} />
+              </TableMessage>
+            ) : (
+              pagination.pageItems.map((r) => {
+                const meta = ATTENDANCE_META[r.status];
+                return (
+                  <TR key={r.id}>
+                    <TD className="whitespace-nowrap font-medium">{formatDate(r.date, 'EEE, d MMM yyyy')}</TD>
+                    <TD>
+                      <span className="font-mono text-xs text-fg-subtle">{r.section.course.code}</span>{' '}
+                      <span className="text-fg">{r.section.course.name}</span>
+                    </TD>
+                    <TD className="text-fg-muted">{r.section.name}</TD>
+                    <TD>
+                      <Badge tone={meta.tone} icon={meta.icon}>
+                        {meta.label}
+                      </Badge>
+                    </TD>
+                    <TD className="text-fg-muted">{r.remarks || '—'}</TD>
+                  </TR>
+                );
+              })
+            )}
+          </TBody>
+        </Table>
+        <Pagination state={pagination} noun="classes" />
+      </Card>
+    </Page>
   );
 };

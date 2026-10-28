@@ -1,157 +1,259 @@
-import React, { useEffect, useState } from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card } from '../../components/shared/Card';
-import { useFacultyStore } from '../../stores/faculty.store';
-import { Loader2, Save, Trophy } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { GraduationCap, Library, RotateCcw, Upload } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { facultyApi } from '../../api/faculty.api';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { useUnsavedChangesGuard } from '../../hooks/useUnsavedChangesGuard';
+import type { FacultySection } from '../../types/api';
+import { currentAcademicYear, fullName, normalizeAcademicYear } from '../../utils/format';
+import { getErrorMessage } from '../../utils/errors';
+import { cn } from '../../utils/cn';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { FormField, Input, Select } from '../../components/ui/Form';
+import { PersonCell } from '../../components/ui/Avatar';
+import { Table, TBody, TD, TH, THead, TR } from '../../components/ui/Table';
+import { Alert, EmptyState, ErrorState } from '../../components/ui/States';
+import { ConfirmDialog } from '../../components/ui/Dialog';
+import { SectionPicker, sortedRoster, useSearchParam } from '../../components/faculty/SectionPicker';
 
-export const ManageResults: React.FC = () => {
-  const { sections, isLoading, fetchSections, uploadResults } = useFacultyStore();
-  const [selectedSection, setSelectedSection] = useState('');
-  const [resultData, setResultData] = useState<Record<string, { sgpa: number; cgpa: number; totalCredits: number; earnedCredits: number }>>({});
-  const [semester, setSemester] = useState(1);
-  const [academicYear, setAcademicYear] = useState('2024-25');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+const FIELDS = [
+  { key: 'sgpa', label: 'SGPA', step: '0.01', max: 10 },
+  { key: 'cgpa', label: 'CGPA', step: '0.01', max: 10 },
+  { key: 'totalCredits', label: 'Credits (total)', step: '1', max: 60 },
+  { key: 'earnedCredits', label: 'Credits (earned)', step: '1', max: 60 },
+] as const;
+type Field = (typeof FIELDS)[number]['key'];
+type Row = Record<Field, string>;
+const EMPTY_ROW: Row = { sgpa: '', cgpa: '', totalCredits: '', earnedCredits: '' };
+const YEAR_PATTERN = /^\d{4}-\d{4}$/;
 
-  useEffect(() => {
-    fetchSections();
-  }, [fetchSections]);
+function rowProblem(row: Row): string | null {
+  const values = FIELDS.map((f) => row[f.key].trim());
+  if (values.every((v) => v === '')) return null;
+  if (values.some((v) => v === '')) return 'Fill all four values';
+  const [sgpa, cgpa, total, earned] = values.map(Number);
+  if ([sgpa, cgpa].some((v) => Number.isNaN(v) || v < 0 || v > 10)) return 'GPA must be 0–10';
+  if ([total, earned].some((v) => !Number.isInteger(v) || v < 0)) return 'Credits must be whole numbers';
+  if (earned > total) return 'Earned credits exceed total';
+  return null;
+}
 
-  const handleSectionChange = (sectionId: string) => {
-    setSelectedSection(sectionId);
-    const section = sections.find((s) => s.id === sectionId);
-    if (section) {
-      setSemester(section.semester);
-      const initialData: Record<string, any> = {};
-      section.enrollments.forEach((e: any) => {
-        initialData[e.studentId] = { sgpa: 8.0, cgpa: 8.0, totalCredits: 24, earnedCredits: 24 };
-      });
-      setResultData(initialData);
-    }
+function ResultsSheet({ section, onDirtyChange }: { section: FacultySection; onDirtyChange: (d: boolean) => void }) {
+  const roster = useMemo(() => sortedRoster(section), [section]);
+  const initialYear = YEAR_PATTERN.test(normalizeAcademicYear(section.academicYear)) ? normalizeAcademicYear(section.academicYear) : currentAcademicYear();
+  const [semester, setSemester] = useState(section.semester);
+  const [academicYear, setAcademicYear] = useState(initialYear);
+  const [rows, setRows] = useState<Record<string, Row>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const complete = roster.filter((e) => {
+    const row = rows[e.studentId];
+    return row && FIELDS.every((f) => row[f.key].trim() !== '') && !rowProblem(row);
+  });
+  const problems = roster.filter((e) => rows[e.studentId] && rowProblem(rows[e.studentId]));
+  const yearValid = YEAR_PATTERN.test(academicYear);
+  const isDirty = Object.values(rows).some((r) => FIELDS.some((f) => r[f.key].trim() !== ''));
+  useEffect(() => onDirtyChange(isDirty), [isDirty, onDirtyChange]);
+
+  const set = (studentId: string, field: Field, value: string) => {
+    setError('');
+    setRows((prev) => ({ ...prev, [studentId]: { ...EMPTY_ROW, ...prev[studentId], [field]: value } }));
   };
 
-  const handleSubmit = async () => {
-    if (!selectedSection) return toast.error('Please select a section');
-
-    setIsSubmitting(true);
-    const records = Object.entries(resultData).map(([studentId, data]) => ({
-      studentId,
-      semester,
-      academicYear,
-      ...data,
-    }));
-
+  const save = async () => {
+    if (saving || !yearValid || problems.length || complete.length === 0) return;
+    setSaving(true);
+    setError('');
     try {
-      await uploadResults({ records });
-      toast.success('Results uploaded successfully');
-    } catch {
-      // error handled by store
+      await facultyApi.uploadResults({
+        records: complete.map((e) => {
+          const r = rows[e.studentId];
+          return {
+            studentId: e.studentId,
+            semester,
+            academicYear,
+            sgpa: Number(r.sgpa),
+            cgpa: Number(r.cgpa),
+            totalCredits: Number(r.totalCredits),
+            earnedCredits: Number(r.earnedCredits),
+          };
+        }),
+      });
+      toast.success(`Results saved for ${complete.length} ${complete.length === 1 ? 'student' : 'students'}`);
+      setRows({});
+    } catch (err) {
+      setError(getErrorMessage(err, 'Results could not be saved.'));
     } finally {
-      setIsSubmitting(false);
+      setSaving(false);
     }
   };
 
-  if (isLoading && sections.length === 0) {
-    return <div className="flex justify-center p-12"><Loader2 className="w-8 h-8 animate-spin text-primary-500" /></div>;
-  }
-
-  const currentSection = sections.find((s) => s.id === selectedSection);
+  if (roster.length === 0) return <EmptyState title="No students enrolled in this section" />;
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Manage Results"
-        subtitle="Upload semester SGPA/CGPA results for students."
-      />
-
-      <Card className="p-4 md:p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div>
-            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Select Section</label>
-            <select value={selectedSection} onChange={(e) => handleSectionChange(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 focus:ring-2 focus:ring-primary-500/20 text-sm text-surface-900 dark:text-white">
-              <option value="">-- Choose --</option>
-              {sections.map((sec) => (
-                <option key={sec.id} value={sec.id}>{sec.course.name} - {sec.name}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Semester</label>
-            <input type="number" min={1} max={8} value={semester} onChange={e => setSemester(parseInt(e.target.value))}
-              className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 focus:ring-2 focus:ring-primary-500/20 text-sm text-surface-900 dark:text-white" />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">Academic Year</label>
-            <input value={academicYear} onChange={e => setAcademicYear(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 focus:ring-2 focus:ring-primary-500/20 text-sm text-surface-900 dark:text-white" />
+    <>
+      <div className="grid grid-cols-1 gap-4 border-b border-line px-5 py-4 sm:grid-cols-2 lg:max-w-xl">
+        <FormField label="Semester" required>
+          <Select value={semester} onChange={(e) => setSemester(Number(e.target.value))}>
+            {Array.from({ length: 8 }, (_, i) => (
+              <option key={i + 1} value={i + 1}>
+                Semester {i + 1}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+        <FormField label="Academic year" required hint="Format YYYY-YYYY" error={yearValid ? undefined : 'Use the format YYYY-YYYY, e.g. 2025-2026'}>
+          <Input value={academicYear} onChange={(e) => setAcademicYear(e.target.value.trim())} placeholder="2025-2026" />
+        </FormField>
+      </div>
+      <div className="px-5 pt-4">
+        <Alert tone="info">
+          Only rows with all four values are saved; leave a row blank to skip a student. Saving updates an existing result for the same student,
+          semester and academic year.
+        </Alert>
+      </div>
+      <Table label="Semester results" minWidth={820} className="mt-4">
+        <THead>
+          <tr>
+            <TH>Student</TH>
+            {FIELDS.map((f) => (
+              <TH key={f.key}>{f.label}</TH>
+            ))}
+          </tr>
+        </THead>
+        <TBody>
+          {roster.map((e) => {
+            const row = rows[e.studentId] ?? EMPTY_ROW;
+            const problem = rowProblem(row);
+            const name = fullName(e.student.user);
+            return (
+              <TR key={e.studentId}>
+                <TD>
+                  <PersonCell person={e.student.user} secondary={problem ? <span className="text-danger-text">{problem}</span> : e.student.rollNumber} />
+                </TD>
+                {FIELDS.map((f) => (
+                  <TD key={f.key}>
+                    <Input
+                      type="number"
+                      inputMode="decimal"
+                      step={f.step}
+                      min={0}
+                      max={f.max}
+                      value={row[f.key]}
+                      disabled={saving}
+                      onChange={(ev) => set(e.studentId, f.key, ev.target.value)}
+                      aria-label={`${f.label} for ${name}`}
+                      aria-invalid={problem ? true : undefined}
+                      className={cn('w-24 tabular-nums')}
+                      placeholder="—"
+                    />
+                  </TD>
+                ))}
+              </TR>
+            );
+          })}
+        </TBody>
+      </Table>
+      <div className="sticky bottom-0 z-10 rounded-b-xl border-t border-line bg-card/95 px-5 py-3 backdrop-blur">
+        {error && (
+          <Alert tone="danger" className="mb-3" title="Results were not saved">
+            {error}
+          </Alert>
+        )}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[13px] text-fg-muted" aria-live="polite">
+            {problems.length > 0
+              ? `${problems.length} ${problems.length === 1 ? 'row needs' : 'rows need'} attention`
+              : `${complete.length} of ${roster.length} rows ready to save`}
+          </p>
+          <div className="flex gap-2">
+            {isDirty && (
+              <Button variant="ghost" leftIcon={<RotateCcw />} onClick={() => setRows({})} disabled={saving}>
+                Clear
+              </Button>
+            )}
+            <Button
+              leftIcon={<Upload />}
+              onClick={save}
+              loading={saving}
+              disabled={!yearValid || problems.length > 0 || complete.length === 0}
+              className="flex-1 sm:flex-none"
+            >
+              Save results
+            </Button>
           </div>
         </div>
+      </div>
+    </>
+  );
+}
 
-        {!currentSection ? (
-          <div className="py-12 text-center">
-            <Trophy className="w-12 h-12 mx-auto text-surface-300 dark:text-surface-600 mb-3" />
-            <p className="text-surface-500 dark:text-surface-400">Select a section to upload results.</p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="overflow-x-auto border border-surface-200 dark:border-surface-800 rounded-xl">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-surface-50 dark:bg-surface-800/50">
-                  <tr>
-                    <th className="px-5 py-3 text-surface-500 dark:text-surface-400 font-medium">Student</th>
-                    <th className="px-5 py-3 text-surface-500 dark:text-surface-400 font-medium">SGPA</th>
-                    <th className="px-5 py-3 text-surface-500 dark:text-surface-400 font-medium">CGPA</th>
-                    <th className="px-5 py-3 text-surface-500 dark:text-surface-400 font-medium">Credits (Total)</th>
-                    <th className="px-5 py-3 text-surface-500 dark:text-surface-400 font-medium">Credits (Earned)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
-                  {currentSection.enrollments.map((enrollment: any) => {
-                    const data = resultData[enrollment.studentId] || {};
-                    return (
-                      <tr key={enrollment.studentId} className="hover:bg-surface-50 dark:hover:bg-surface-800/30 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white text-xs font-bold">
-                              {enrollment.student.user.firstName[0]}{enrollment.student.user.lastName[0]}
-                            </div>
-                            <span className="font-medium text-surface-900 dark:text-white">
-                              {enrollment.student.user.firstName} {enrollment.student.user.lastName}
-                            </span>
-                          </div>
-                        </td>
-                        {['sgpa', 'cgpa', 'totalCredits', 'earnedCredits'].map((field) => (
-                          <td key={field} className="px-5 py-3.5">
-                            <input
-                              type="number" step={field.includes('gpa') ? '0.1' : '1'} min={0}
-                              max={field.includes('gpa') ? 10 : 50}
-                              value={(data as any)[field] || 0}
-                              onChange={(e) => setResultData((prev) => ({
-                                ...prev,
-                                [enrollment.studentId]: { ...prev[enrollment.studentId], [field]: parseFloat(e.target.value) }
-                              }))}
-                              className="w-20 px-2 py-1.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-sm text-center text-surface-900 dark:text-white focus:ring-2 focus:ring-primary-500/20"
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+export const ManageResults: React.FC = () => {
+  const sections = useApiQuery(facultyApi.getSections, []);
+  const [sectionId, setSectionId] = useSearchParam('section');
+  const section = sections.data?.find((s) => s.id === sectionId);
 
-            <div className="flex justify-end pt-2">
-              <button onClick={handleSubmit} disabled={isSubmitting}
-                className="flex items-center gap-2 px-6 py-2.5 bg-primary-600 text-white font-medium rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50 shadow-sm">
-                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                Upload Results
-              </button>
-            </div>
-          </div>
-        )}
-      </Card>
-    </div>
+  const [isDirty, setIsDirty] = useState(false);
+  const [pending, setPending] = useState<(() => void) | null>(null);
+  const guard = useUnsavedChangesGuard(isDirty);
+  const onDirtyChange = useCallback((d: boolean) => setIsDirty(d), []);
+
+  return (
+    <Page>
+      <PageHeader title="Results" description="Record semester SGPA, CGPA and credits for students in your sections." />
+
+      {sections.error ? (
+        <Card>
+          <ErrorState message={sections.error} onRetry={sections.reload} />
+        </Card>
+      ) : !sections.isLoading && sections.data?.length === 0 ? (
+        <Card>
+          <EmptyState icon={Library} title="No sections assigned to you" />
+        </Card>
+      ) : (
+        <>
+          <Card>
+            <SectionPicker
+              sections={sections.data}
+              isLoading={sections.isLoading}
+              value={sectionId}
+              onChange={(id) => (isDirty ? setPending(() => () => setSectionId(id || null)) : setSectionId(id || null))}
+              className="max-w-xl"
+            />
+          </Card>
+          <Card flush>
+            {section ? (
+              <ResultsSheet key={section.id} section={section} onDirtyChange={onDirtyChange} />
+            ) : (
+              <EmptyState icon={GraduationCap} title="Select a section" description="Its students are listed so you can enter their semester results." />
+            )}
+          </Card>
+        </>
+      )}
+
+      <ConfirmDialog
+        open={pending !== null || guard.isBlocked}
+        onCancel={() => {
+          setPending(null);
+          guard.cancel();
+        }}
+        onConfirm={() => {
+          setIsDirty(false);
+          if (guard.isBlocked) guard.proceed();
+          else {
+            pending?.();
+            setPending(null);
+          }
+        }}
+        title="Discard unsaved results?"
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+      >
+        <p>Results you've entered but not saved will be lost.</p>
+      </ConfirmDialog>
+    </Page>
   );
 };

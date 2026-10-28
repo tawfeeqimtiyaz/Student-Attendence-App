@@ -1,236 +1,265 @@
-import React, { useEffect, useState } from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card } from '../../components/shared/Card';
-import { adminApi } from '../../api/admin.api';
-import { Users, BookOpen, Plus, Trash2, Loader2, UserPlus, Building2 } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { Building2, Layers, Trash2, UserPlus, Users } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { adminApi } from '../../api/admin.api';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { usePagination } from '../../hooks/usePagination';
+import { formatNumber, fullName } from '../../utils/format';
+import { getErrorMessage } from '../../utils/errors';
+import type { AdminDepartment, AdminEnrollment, AdminSection } from '../../types/api';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card, CardHeader } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { Badge } from '../../components/ui/Badge';
+import { PersonCell } from '../../components/ui/Avatar';
+import { FormField, SearchInput, Select } from '../../components/ui/Form';
+import { Table, TBody, TD, TH, THead, TR, TableMessage, Toolbar } from '../../components/ui/Table';
+import { Pagination } from '../../components/ui/Pagination';
+import { EmptyState, ErrorState, Skeleton, SkeletonRows } from '../../components/ui/States';
+import { ConfirmDialog } from '../../components/ui/Dialog';
+
+function sectionLabel(s: AdminSection) {
+  return `${s.course.code} · ${s.course.name} — Section ${s.name}`;
+}
 
 export const ManageEnrollments: React.FC = () => {
-  const [sections, setSections] = useState<any[]>([]);
-  const [departments, setDepartments] = useState<any[]>([]);
-  const [enrollments, setEnrollments] = useState<any[]>([]);
-  const [selectedSection, setSelectedSection] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [enrolling, setEnrolling] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const sectionId = params.get('section') ?? '';
+  const sections = useApiQuery(adminApi.listSections, []);
+  const departments = useApiQuery(adminApi.listDepartments, []);
+  const enrollments = useApiQuery(sectionId ? () => adminApi.listEnrollments(sectionId) : null, [sectionId]);
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const [search, setSearch] = useState('');
+  const [bulkTarget, setBulkTarget] = useState<AdminDepartment | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<AdminEnrollment | null>(null);
+  const [working, setWorking] = useState(false);
 
-  useEffect(() => {
-    if (selectedSection) {
-      loadEnrollments(selectedSection);
-    } else {
-      setEnrollments([]);
-    }
-  }, [selectedSection]);
+  const section = sections.data?.find((s) => s.id === sectionId);
 
-  const loadData = async () => {
-    try {
-      const [secRes, deptRes] = await Promise.all([
-        adminApi.listSections(),
-        adminApi.listDepartments(),
-      ]);
-      setSections(secRes.data.data);
-      setDepartments(deptRes.data.data);
-    } catch {
-      toast.error('Failed to load data');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const sortedSections = useMemo(
+    () => [...(sections.data ?? [])].sort((a, b) => sectionLabel(a).localeCompare(sectionLabel(b))),
+    [sections.data]
+  );
 
-  const loadEnrollments = async (sectionId: string) => {
-    try {
-      const res = await adminApi.listEnrollments(sectionId);
-      setEnrollments(res.data.data);
-    } catch {
-      toast.error('Failed to load enrollments');
-    }
-  };
-
-  const handleBulkEnroll = async (departmentId: string) => {
-    if (!selectedSection) {
-      toast.error('Select a section first');
-      return;
-    }
-    setEnrolling(true);
-    try {
-      const res = await adminApi.enrollDepartmentStudents({
-        sectionId: selectedSection,
-        departmentId,
-      });
-      toast.success(res.data.message);
-      loadEnrollments(selectedSection);
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Enrollment failed');
-    } finally {
-      setEnrolling(false);
-    }
-  };
-
-  const handleRemove = async (studentId: string) => {
-    if (!confirm('Remove this student from the section?')) return;
-    try {
-      await adminApi.removeEnrollment(studentId, selectedSection);
-      toast.success('Student removed');
-      loadEnrollments(selectedSection);
-    } catch {
-      toast.error('Failed to remove');
-    }
-  };
-
-  const selectedSectionData = sections.find((s: any) => s.id === selectedSection);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-500" />
-      </div>
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = [...(enrollments.data ?? [])].sort((a, b) => a.student.rollNumber.localeCompare(b.student.rollNumber));
+    if (!q) return list;
+    return list.filter(
+      (e) =>
+        fullName(e.student.user).toLowerCase().includes(q) ||
+        e.student.rollNumber.toLowerCase().includes(q) ||
+        e.student.user.email.toLowerCase().includes(q)
     );
-  }
+  }, [enrollments.data, search]);
+  const pagination = usePagination(filtered, `${sectionId}|${search}`);
+
+  const selectSection = (id: string) => {
+    setSearch('');
+    setParams(id ? { section: id } : {}, { replace: true });
+  };
+
+  const refresh = async () => {
+    await Promise.all([enrollments.reload(), sections.reload()]);
+  };
+
+  const confirmBulk = async () => {
+    if (!bulkTarget || !sectionId) return;
+    setWorking(true);
+    try {
+      const res = await adminApi.enrollDepartmentStudents({ sectionId, departmentId: bulkTarget.id });
+      const { enrolled, total } = res.data;
+      toast.success(
+        enrolled === 0
+          ? `All ${total} ${bulkTarget.code} students were already enrolled`
+          : `Enrolled ${enrolled} of ${total} ${bulkTarget.code} students`
+      );
+      setBulkTarget(null);
+      await refresh();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Enrollment failed.'));
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const confirmRemove = async () => {
+    if (!removeTarget) return;
+    setWorking(true);
+    try {
+      await adminApi.removeEnrollment(removeTarget.student.id, sectionId);
+      toast.success(`${fullName(removeTarget.student.user)} was removed from the section`);
+      setRemoveTarget(null);
+      await refresh();
+    } catch (err) {
+      toast.error(getErrorMessage(err, 'Could not remove the enrollment.'));
+    } finally {
+      setWorking(false);
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Course Enrollments"
-        subtitle="Manage which students are enrolled in each course section."
-      />
+    <Page>
+      <PageHeader title="Enrollments" description="Choose a course section, then enroll students by department or remove individual students." />
 
-      {/* Section Selector */}
       <Card>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <BookOpen className="w-5 h-5 text-primary-500" />
-            <span className="font-semibold text-surface-900 dark:text-white text-sm">Select Section:</span>
-          </div>
-          <select
-            value={selectedSection}
-            onChange={(e) => setSelectedSection(e.target.value)}
-            className="flex-1 px-4 py-2.5 bg-surface-50 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 rounded-xl text-sm text-surface-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+        {sections.isLoading ? (
+          <Skeleton className="h-16" />
+        ) : sections.error ? (
+          <ErrorState message={sections.error} onRetry={sections.reload} className="py-6" />
+        ) : (
+          <FormField
+            label="Course section"
+            hint={
+              section
+                ? `Taught by ${section.faculty ? fullName(section.faculty.user) : 'unassigned'} · ${section.academicYear} · Semester ${section.semester}`
+                : `${formatNumber(sortedSections.length)} sections available`
+            }
           >
-            <option value="">— Choose a section —</option>
-            {sections.map((s: any) => (
-              <option key={s.id} value={s.id}>
-                {s.course.code} — {s.course.name} (Section {s.name}) • Faculty: {s.faculty?.user?.firstName} {s.faculty?.user?.lastName} • {s._count.enrollments} students
-              </option>
-            ))}
-          </select>
-        </div>
+            <Select value={sectionId} onChange={(e) => selectSection(e.target.value)} className="max-w-2xl">
+              <option value="">Select a section…</option>
+              {sortedSections.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {sectionLabel(s)} ({s._count.enrollments} enrolled)
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        )}
       </Card>
 
-      {selectedSection && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Left: Bulk enroll by department */}
-          <Card className="lg:col-span-1">
-            <h3 className="text-sm font-semibold text-surface-900 dark:text-white mb-3 flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-primary-500" />
-              Bulk Enroll by Department
-            </h3>
-            <p className="text-xs text-surface-500 dark:text-surface-400 mb-4">
-              Add ALL students from a department to this section.
-            </p>
-            <div className="space-y-2">
-              {departments.map((dept: any) => (
-                <button
-                  key={dept.id}
-                  onClick={() => handleBulkEnroll(dept.id)}
-                  disabled={enrolling}
-                  className="w-full flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-100 dark:border-surface-700 hover:border-primary-300 dark:hover:border-primary-700 transition-colors text-left group disabled:opacity-50"
-                >
-                  <div>
-                    <p className="text-sm font-semibold text-surface-900 dark:text-white">{dept.code}</p>
-                    <p className="text-xs text-surface-500 dark:text-surface-400">{dept.name}</p>
-                    <p className="text-xs text-surface-400 mt-0.5">{dept._count.students} students</p>
-                  </div>
-                  <div className="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center text-primary-500 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                    <UserPlus className="w-4 h-4" />
-                  </div>
-                </button>
-              ))}
+      {!sectionId ? (
+        <Card>
+          <EmptyState icon={Layers} title="Select a section to manage its students" description="Enrolled students appear here with tools to add or remove them." />
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <Card flush className="min-w-0">
+            <div className="px-5 pt-5">
+              <CardHeader
+                title="Enrolled students"
+                description={section ? `${section.course.code} — Section ${section.name}` : undefined}
+                actions={<Badge tone="brand">{formatNumber(enrollments.data?.length ?? 0)} enrolled</Badge>}
+              />
             </div>
+            <Toolbar className="mt-4 border-t">
+              <SearchInput label="Search enrolled students" value={search} onChange={setSearch} className="sm:w-72" />
+            </Toolbar>
+            <Table label="Enrolled students" minWidth={560}>
+              <THead>
+                <tr>
+                  <TH>Student</TH>
+                  <TH>Roll number</TH>
+                  <TH>Department</TH>
+                  <TH alignTo="right" srOnly>
+                    Actions
+                  </TH>
+                </tr>
+              </THead>
+              <TBody>
+                {enrollments.isLoading ? (
+                  <TableMessage colSpan={4}>
+                    <SkeletonRows rows={5} />
+                  </TableMessage>
+                ) : enrollments.error ? (
+                  <TableMessage colSpan={4}>
+                    <ErrorState message={enrollments.error} onRetry={enrollments.reload} />
+                  </TableMessage>
+                ) : pagination.total === 0 ? (
+                  <TableMessage colSpan={4}>
+                    <EmptyState
+                      icon={Users}
+                      title={search ? 'No enrolled students match' : 'No students enrolled yet'}
+                      description={search ? 'Try another name or roll number.' : 'Use “Enroll by department” to add students.'}
+                    />
+                  </TableMessage>
+                ) : (
+                  pagination.pageItems.map((e) => (
+                    <TR key={e.id}>
+                      <TD>
+                        <PersonCell person={e.student.user} secondary={e.student.user.email} />
+                      </TD>
+                      <TD className="font-mono text-xs text-fg-muted">{e.student.rollNumber}</TD>
+                      <TD>
+                        <Badge>{e.student.department?.code}</Badge>
+                      </TD>
+                      <TD alignTo="right">
+                        <Button variant="danger-ghost" size="sm" leftIcon={<Trash2 />} onClick={() => setRemoveTarget(e)}>
+                          Remove<span className="sr-only"> {fullName(e.student.user)}</span>
+                        </Button>
+                      </TD>
+                    </TR>
+                  ))
+                )}
+              </TBody>
+            </Table>
+            <Pagination state={pagination} noun="students" />
           </Card>
 
-          {/* Right: Enrolled students */}
-          <Card className="lg:col-span-2" noPadding>
-            <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-surface-100 dark:border-surface-800">
-              <div>
-                <h3 className="text-sm font-semibold text-surface-900 dark:text-white flex items-center gap-2">
-                  <Users className="w-4 h-4 text-indigo-500" />
-                  Enrolled Students
-                </h3>
-                {selectedSectionData && (
-                  <p className="text-xs text-surface-500 mt-0.5">
-                    {selectedSectionData.course.code} — Section {selectedSectionData.name}
-                  </p>
-                )}
-              </div>
-              <span className="px-3 py-1 text-xs font-bold rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-400">
-                {enrollments.length} students
-              </span>
-            </div>
-
-            {enrollments.length === 0 ? (
-              <div className="py-12 text-center">
-                <Users className="w-10 h-10 mx-auto text-surface-300 dark:text-surface-600 mb-3" />
-                <p className="text-sm text-surface-500 dark:text-surface-400">No students enrolled yet.</p>
-                <p className="text-xs text-surface-400 mt-1">Use the department buttons to bulk-enroll students.</p>
-              </div>
+          <Card className="h-fit">
+            <CardHeader as="h2" title="Enroll by department" description="Adds every student of a department who isn't already in this section." />
+            {departments.isLoading ? (
+              <Skeleton className="mt-4 h-40" />
+            ) : departments.error ? (
+              <ErrorState message={departments.error} onRetry={departments.reload} className="py-6" />
             ) : (
-              <div className="max-h-[500px] overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-surface-50 dark:bg-surface-800 z-10">
-                    <tr className="text-left text-xs font-semibold text-surface-500 dark:text-surface-400 uppercase tracking-wider">
-                      <th className="px-5 py-3">#</th>
-                      <th className="px-5 py-3">Student</th>
-                      <th className="px-5 py-3">Department</th>
-                      <th className="px-5 py-3">Roll No</th>
-                      <th className="px-5 py-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-surface-100 dark:divide-surface-800">
-                    {enrollments.map((e: any, idx: number) => (
-                      <tr key={e.id || idx} className="hover:bg-surface-50 dark:hover:bg-surface-800/30 transition-colors">
-                        <td className="px-5 py-3 text-surface-400 text-xs">{idx + 1}</td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full gradient-primary flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                              {e.student?.user?.firstName?.[0]}{e.student?.user?.lastName?.[0]}
-                            </div>
-                            <div>
-                              <p className="font-medium text-surface-900 dark:text-white">
-                                {e.student?.user?.firstName} {e.student?.user?.lastName}
-                              </p>
-                              <p className="text-xs text-surface-400">{e.student?.user?.email}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          <span className="px-2 py-0.5 text-xs font-semibold rounded-md bg-surface-100 dark:bg-surface-700 text-surface-600 dark:text-surface-300">
-                            {e.student?.department?.code}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3 text-surface-600 dark:text-surface-300 font-mono text-xs">
-                          {e.student?.rollNumber}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <button
-                            onClick={() => handleRemove(e.student?.id)}
-                            className="p-1.5 rounded-lg text-surface-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                            title="Remove enrollment"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ul className="mt-4 space-y-2">
+                {departments.data.map((dept) => (
+                  <li key={dept.id}>
+                    <button
+                      type="button"
+                      onClick={() => setBulkTarget(dept)}
+                      disabled={working || dept._count.students === 0}
+                      className="group flex w-full items-center gap-3 rounded-lg border border-line px-3 py-2.5 text-left transition-colors hover:border-line-strong hover:bg-subtle disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Building2 className="size-4 shrink-0 text-fg-subtle" aria-hidden />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-fg">{dept.name}</span>
+                        <span className="block text-xs text-fg-subtle">
+                          {dept.code} · {formatNumber(dept._count.students)} students
+                        </span>
+                      </span>
+                      <UserPlus className="size-4 shrink-0 text-fg-subtle group-hover:text-brand-text" aria-hidden />
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </Card>
         </div>
       )}
-    </div>
+
+      <ConfirmDialog
+        open={bulkTarget !== null}
+        onCancel={() => setBulkTarget(null)}
+        onConfirm={confirmBulk}
+        loading={working}
+        tone="primary"
+        title={`Enroll ${bulkTarget?.code ?? ''} students?`}
+        confirmLabel="Enroll students"
+      >
+        <p>
+          All {formatNumber(bulkTarget?._count.students ?? 0)} students in <strong className="text-fg">{bulkTarget?.name}</strong> will be
+          enrolled in <strong className="text-fg">{section ? sectionLabel(section) : 'this section'}</strong>. Students who are already enrolled are
+          skipped.
+        </p>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={removeTarget !== null}
+        onCancel={() => setRemoveTarget(null)}
+        onConfirm={confirmRemove}
+        loading={working}
+        title="Remove student from section?"
+        confirmLabel="Remove student"
+      >
+        <p>
+          <strong className="text-fg">{removeTarget ? fullName(removeTarget.student.user) : ''}</strong> will be removed from{' '}
+          {section ? sectionLabel(section) : 'this section'} and will no longer appear on its attendance roster. Attendance, marks and grades
+          already recorded are kept.
+        </p>
+      </ConfirmDialog>
+    </Page>
   );
 };

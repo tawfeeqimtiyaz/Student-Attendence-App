@@ -1,125 +1,141 @@
 import React from 'react';
-import { PageHeader } from '../../components/shared/PageHeader';
-import { Card, CardHeader } from '../../components/shared/Card';
-import { Shield, Palette, Bell, Database, Globe, Clock } from 'lucide-react';
+import axios from 'axios';
+import { Activity, LogOut, Monitor, Moon, Palette, Sun, UserCircle } from 'lucide-react';
+import type { ApiResponse } from '@college-erp/shared';
+import { Role } from '@college-erp/shared';
 import { useUI } from '../../contexts/UIContext';
+import { useAuthStore } from '../../stores/auth.store';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { useLogout } from '../../hooks/useLogout';
+import { ROLE_LABELS } from '../../constants/navigation';
+import { formatTimestamp, fullName } from '../../utils/format';
+import type { ThemePreference } from '../../utils/theme';
+import { cn } from '../../utils/cn';
+import { version } from '../../../package.json';
+import { Page, PageHeader } from '../../components/ui/PageHeader';
+import { Card, CardHeader } from '../../components/ui/Card';
+import { Button } from '../../components/ui/Button';
+import { Badge } from '../../components/ui/Badge';
+import { Avatar } from '../../components/ui/Avatar';
+import { Skeleton } from '../../components/ui/States';
+
+const THEMES: { value: ThemePreference; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: Monitor },
+];
+
+interface Health {
+  status: string;
+  timestamp: string;
+  environment: string;
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-3">
+      <dt className="text-[13px] text-fg-muted">{label}</dt>
+      <dd className="text-sm font-medium text-fg">{children}</dd>
+    </div>
+  );
+}
 
 export const SettingsPage: React.FC = () => {
-  const { theme, toggleTheme } = useUI();
+  const { themePreference, setThemePreference } = useUI();
+  const user = useAuthStore((s) => s.user);
+  const logout = useLogout();
+  const health = useApiQuery(() => axios.get<ApiResponse<Health>>('/api/health').then((r) => r.data.data), []);
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="Settings"
-        subtitle="Manage system preferences and configurations."
-      />
+    <Page>
+      <PageHeader title="Settings" description="Personal preferences and system status." />
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Appearance */}
-        <Card className="p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-violet-500/10 text-violet-500">
-              <Palette className="w-5 h-5" />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader icon={Palette} title="Appearance" description="Saved on this device." />
+          <fieldset className="mt-5">
+            <legend className="mb-2 text-[13px] font-medium text-fg">Theme</legend>
+            <div className="grid grid-cols-3 gap-2">
+              {THEMES.map(({ value, label, icon: Icon }) => {
+                const selected = themePreference === value;
+                return (
+                  <label
+                    key={value}
+                    className={cn(
+                      'flex cursor-pointer flex-col items-center gap-2 rounded-lg border px-3 py-3 text-sm font-medium transition-colors',
+                      'has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-brand',
+                      selected ? 'border-brand bg-brand-soft text-brand-text' : 'border-line text-fg-muted hover:bg-subtle hover:text-fg'
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="theme"
+                      value={value}
+                      checked={selected}
+                      onChange={() => setThemePreference(value)}
+                      className="sr-only"
+                    />
+                    <Icon className="size-5" aria-hidden />
+                    {label}
+                  </label>
+                );
+              })}
             </div>
-            <div>
-              <h3 className="font-semibold text-surface-900 dark:text-white">Appearance</h3>
-              <p className="text-xs text-surface-500 dark:text-surface-400">Customize the look and feel</p>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <div className="flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-100 dark:border-surface-800">
-              <div>
-                <p className="text-sm font-medium text-surface-900 dark:text-white">Dark Mode</p>
-                <p className="text-xs text-surface-500 dark:text-surface-400">Toggle dark/light theme</p>
-              </div>
-              <button
-                onClick={toggleTheme}
-                className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
-                  theme === 'dark' ? 'bg-primary-600' : 'bg-surface-300'
-                }`}
-              >
-                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
-                  theme === 'dark' ? 'translate-x-6' : 'translate-x-1'
-                }`} />
-              </button>
-            </div>
-          </div>
+            <p className="mt-2 text-xs text-fg-subtle">“System” follows your operating system’s light or dark setting.</p>
+          </fieldset>
         </Card>
 
-        {/* Notifications */}
-        <Card className="p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-500/10 text-blue-500">
-              <Bell className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-surface-900 dark:text-white">Notifications</h3>
-              <p className="text-xs text-surface-500 dark:text-surface-400">Manage notification preferences</p>
-            </div>
-          </div>
-          <div className="space-y-3">
-            {['Email Notifications', 'Attendance Alerts', 'Fee Reminders'].map((label) => (
-              <div key={label} className="flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-100 dark:border-surface-800">
-                <p className="text-sm font-medium text-surface-900 dark:text-white">{label}</p>
-                <div className="relative inline-flex h-7 w-12 items-center rounded-full bg-primary-600">
-                  <span className="inline-block h-5 w-5 transform rounded-full bg-white shadow-sm translate-x-6" />
+        <Card>
+          <CardHeader icon={UserCircle} title="Your account" />
+          {user && (
+            <>
+              <div className="mt-5 flex items-center gap-3">
+                <Avatar person={user} size="lg" />
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-fg">{fullName(user)}</p>
+                  <p className="truncate text-[13px] text-fg-muted">{user.email}</p>
                 </div>
               </div>
-            ))}
-          </div>
+              <dl className="mt-4 divide-y divide-line border-t border-line">
+                <Row label="Role">
+                  <Badge tone="brand">{ROLE_LABELS[user.role as Role]}</Badge>
+                </Row>
+                <Row label="Member since">{formatTimestamp(user.createdAt)}</Row>
+              </dl>
+              <Button variant="secondary" className="mt-4" leftIcon={<LogOut />} onClick={logout}>
+                Sign out
+              </Button>
+            </>
+          )}
         </Card>
 
-        {/* Security */}
-        <Card className="p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-red-500/10 text-red-500">
-              <Shield className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-surface-900 dark:text-white">Security</h3>
-              <p className="text-xs text-surface-500 dark:text-surface-400">Account security settings</p>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <div className="p-3 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-100 dark:border-surface-800">
-              <p className="text-sm font-medium text-surface-900 dark:text-white">Password</p>
-              <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5">Last changed 30 days ago</p>
-            </div>
-            <div className="p-3 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-100 dark:border-surface-800">
-              <p className="text-sm font-medium text-surface-900 dark:text-white">Session Timeout</p>
-              <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5">Auto-logout after 30 minutes</p>
-            </div>
-          </div>
-        </Card>
-
-        {/* System Info */}
-        <Card className="p-6">
-          <div className="flex items-center gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-emerald-500/10 text-emerald-500">
-              <Database className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="font-semibold text-surface-900 dark:text-white">System Info</h3>
-              <p className="text-xs text-surface-500 dark:text-surface-400">Application & database status</p>
-            </div>
-          </div>
-          <div className="space-y-3">
-            {[
-              { label: 'Version', value: 'v1.0.0', icon: Globe },
-              { label: 'Database', value: 'PostgreSQL (Supabase)', icon: Database },
-              { label: 'Academic Year', value: '2024-25', icon: Clock },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center justify-between p-3 rounded-xl bg-surface-50 dark:bg-surface-800/50 border border-surface-100 dark:border-surface-800">
-                <div className="flex items-center gap-2">
-                  <item.icon className="w-4 h-4 text-surface-400" />
-                  <p className="text-sm font-medium text-surface-900 dark:text-white">{item.label}</p>
-                </div>
-                <p className="text-sm text-surface-500 dark:text-surface-400">{item.value}</p>
-              </div>
-            ))}
-          </div>
+        <Card className="lg:col-span-2">
+          <CardHeader
+            icon={Activity}
+            title="System status"
+            description="Live response from the API health check."
+            actions={
+              <Button variant="secondary" size="sm" onClick={health.reload} loading={health.isLoading}>
+                Check again
+              </Button>
+            }
+          />
+          <dl className="mt-4 grid grid-cols-1 divide-y divide-line border-t border-line sm:grid-cols-2 sm:gap-x-8 sm:divide-y-0">
+            <Row label="API">
+              {health.isLoading && !health.data ? (
+                <Skeleton className="h-5 w-24" />
+              ) : health.error ? (
+                <Badge tone="danger">Unreachable</Badge>
+              ) : (
+                <Badge tone="success">Operational</Badge>
+              )}
+            </Row>
+            <Row label="Environment">{health.data?.environment ?? '—'}</Row>
+            <Row label="Last checked">{health.data ? formatTimestamp(health.data.timestamp, 'd MMM yyyy, HH:mm:ss') : '—'}</Row>
+            <Row label="Client version">v{version}</Row>
+          </dl>
         </Card>
       </div>
-    </div>
+    </Page>
   );
 };
